@@ -14,6 +14,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
+using static System.DateTime;
 using static CommonClass.Game.Player;
 using static SanguoshaServer.Game.Skill;
 using static SanguoshaServer.Package.FunctionCard;
@@ -3210,37 +3211,47 @@ namespace SanguoshaServer.Game
             int index = int.Parse(data[0]);
             lock (this)
             {
-                if (client == Host && !IsFull() && !GameStarted && seat2clients[index] == null)
-                {
-                    int bot_id = Hall.GetBotId();
-                    /*
-                    Profile profile = new Profile
+                //添加bot的时间和vip限制
+                if ((Now.Hour > 8 && Now.Hour < 16) || (Now.DayOfWeek.ToString() != "Saturday" && Now.DayOfWeek.ToString() != "Sunday") || client.UserRight == 3)
+                {                    
+                    if (client == Host && !IsFull() && !GameStarted && seat2clients[index] == null)
                     {
-                        NickName = string.Format("女装ZY {0}号", Math.Abs(bot_id)),
-                        Avatar = 100156,
-                        Frame = 200156,
-                        Bg = 300156,
-                        UId = bot_id,
-                        Title = 0,
-                    };
-                    */
-                    Profile profile = Bot.GetBot(this);
-                    profile.UId = bot_id;
-                    Client bot = new Client(Hall, profile)
-                    {
-                        GameRoom = RoomId,
-                        Status = Client.GameStatus.bot,
-                    };
-                    Hall.AddBot(bot);
-                    Clients.Add(bot);
-                    bot.LeaveRoom += OnClientLeave;
+                        int bot_id = Hall.GetBotId();
+                        /*
+                        Profile profile = new Profile
+                        {
+                            NickName = string.Format("女装ZY {0}号", Math.Abs(bot_id)),
+                            Avatar = 100156,
+                            Frame = 200156,
+                            Bg = 300156,
+                            UId = bot_id,
+                            Title = 0,
+                        };
+                        */
+                        Profile profile = Bot.GetBot(this);
+                        profile.UId = bot_id;
+                        Client bot = new Client(Hall, profile)
+                        {
+                            GameRoom = RoomId,
+                            Status = Client.GameStatus.bot,
+                        };
+                        Hall.AddBot(bot);
+                        Clients.Add(bot);
+                        bot.LeaveRoom += OnClientLeave;
 
-                    seat2clients[index] = bot;
-                    RoomMessage.NotifyPlayerJoinorLeave(this, bot, true);
-                    UpdateClientsInfo();
+                        seat2clients[index] = bot;
+                        RoomMessage.NotifyPlayerJoinorLeave(this, bot, true);
+                        UpdateClientsInfo();
 
-                    Bot.SayHellow(this, bot);
+                        Bot.SayHellow(this, bot);
+                    }
                 }
+                else
+                {
+                    RoomMessage.SystemMessage(this, string.Format("今天是{0}， 现在是{1}点", Now.DayOfWeek.ToString(), Now.Hour.ToString()));
+                    RoomMessage.SystemMessage(this, "出于节省服务器资源的考虑，只在周一到周五8点至16点开放添加AI功能，请谅解");
+                }
+                
             }
         }
 

@@ -52,5 +52,28 @@ namespace SanguoshaServer.Game
                 room.Debug(string.Format("error on NotifyPlayerDisconnected {0} {1} {2}", e.Message, e.Source, e.HelpLink));
             }
         }
+
+        public static void SystemMessage(Room room, string message)
+        {
+            try
+            {
+                MyData data = new MyData
+                {
+                    Description = PacketDescription.Room2Cient,
+                    Protocol = Protocol.Message2Room,
+                    Body = new List<string> { string.Empty, message },
+                };
+
+                List<Client> clients = new List<Client>(room.Clients);
+                foreach (Client c in clients)
+                    if (c.GameRoom == room.RoomId)
+                        c.SendMessage(data);
+            }
+            catch (Exception e)
+            {
+                LogHelper.WriteLog(null, e);
+                room.Debug(string.Format("error on SystemMessage {0} {1} {2}", e.Message, e.Source, e.HelpLink));
+            }
+        }
     }
 }
