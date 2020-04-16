@@ -3212,7 +3212,7 @@ namespace SanguoshaServer.Game
             lock (this)
             {
                 //添加bot的时间和vip限制
-                if ((Now.Hour > 8 && Now.Hour < 16) || (Now.DayOfWeek.ToString() != "Saturday" && Now.DayOfWeek.ToString() != "Sunday") || client.UserRight == 3)
+                if ((Now.Hour > 8 && Now.Hour < 16) && (Now.DayOfWeek.ToString() != "Saturday" && Now.DayOfWeek.ToString() != "Sunday") || client.UserRight == 3)
                 {                    
                     if (client == Host && !IsFull() && !GameStarted && seat2clients[index] == null)
                     {
