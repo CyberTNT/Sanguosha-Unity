@@ -92,6 +92,7 @@ namespace SanguoshaServer.Package
                 new LinglongVH(),
                 new LinglongTar(),
                 new LinglongMax(),
+                new LinglongFix(),
                 new Zhuiji(),
                 new Shichou(),
                 new Fuqi(),
@@ -231,6 +232,7 @@ namespace SanguoshaServer.Package
                 new QizhouVH(),
                 new Mashu("heqi"),
                 new Yingzi("heqi", false),
+                new YingziMax("heqi"),
                 new Shanxi(),
             };
 
@@ -285,7 +287,7 @@ namespace SanguoshaServer.Package
                 { "shanjia", new List<string>{ "#shanjia-clear" } },
                 { "fanghun", new List<string>{ "#fanghun-clear" } },
                 { "yuhua", new List<string>{ "#yuhua-max" } },
-                { "linglong", new List<string>{ "#linglong-max", "#linglong-tar", "#linglongvh" } },
+                { "linglong", new List<string>{ "#linglong-max", "#linglong-tar", "#linglongvh", "#linglong-fix" } },
                 { "xingwu", new List<string>{ "#xingwu-clear" } },
                 { "yicong", new List<string>{ "#yicong" } },
                 { "weikui", new List<string>{ "#weikui-dis" } },
@@ -4557,6 +4559,20 @@ namespace SanguoshaServer.Package
         }
     }
 
+    public class LinglongFix : FixCardSkill
+    {
+        public LinglongFix() : base("#linglong-fix") { }
+
+        public override bool IsCardFixed(Room room, Player from, Player to, string flags, HandlingMethod method)
+        {
+            if (to != null && from != null && from != to && (flags == "t" || flags == "a")
+                && method == HandlingMethod.MethodDiscard && RoomLogic.PlayerHasSkill(room, to, "linglong") && !to.GetTreasure())
+                return true;
+
+            return false;
+        }
+    }
+
     public class Zhuiji : DistanceSkill
     {
         public Zhuiji() : base("zhuiji") { }
@@ -5987,9 +6003,14 @@ namespace SanguoshaServer.Package
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard zy = new WrappedCard(ZhenyiCard.ClassName);
-            zy.AddSubCard(card);
-            return zy;
+            if (!RoomLogic.IsCardLimited(room, player, card, HandlingMethod.MethodUse))
+            {
+                WrappedCard zy = new WrappedCard(ZhenyiCard.ClassName);
+                zy.AddSubCard(card);
+                return zy;
+            }
+
+            return null;
         }
     }
     public class ZhenyiCard : SkillCard
