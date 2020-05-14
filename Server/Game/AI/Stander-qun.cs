@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using CommonClass.Game;
 using SanguoshaServer.Game;
 using SanguoshaServer.Package;
+using static CommonClass.Game.Player;
 
 namespace SanguoshaServer.AI
 {
@@ -35,6 +36,7 @@ namespace SanguoshaServer.AI
                 new ShuangrenAI(),
                 new ShuangrenSlashAI(),
                 new KuangfuAI(),
+                new KuangfuJXAI(),
                 new HuoshuiAI(),
                 new QingchengAI()
             };
@@ -47,6 +49,7 @@ namespace SanguoshaServer.AI
                 new XiongyiCardAI(),
                 new HuoshuiCardAI(),
                 new QingchengCardAI(),
+                new KuangfuCardAI(),
             };
         }
     }
@@ -1632,6 +1635,221 @@ namespace SanguoshaServer.AI
                 return new List<int> { id };
 
             return null;
+        }
+    }
+
+    public class KuangfuJXAI : SkillEvent
+    {
+        public KuangfuJXAI() : base("kuangfu_jx")
+        {
+            key = new List<string> { "cardChosen:kuangfu_jx", "playerChosen:kuangfu_jx" };
+        }
+
+        public override void OnEvent(TrustedAI ai, TriggerEvent triggerEvent, Player player, object data)
+        {
+            if (data is string choice)
+            {
+                Room room = ai.Room;
+                string[] choices = choice.Split(':');
+                if (choices[1] == Name && choice.Contains("cardChosen:kuangfu_jx"))
+                {
+                    int id = int.Parse(choices[2]);
+                    Player target = room.FindPlayer(choices[4]);
+                    if (target != player)
+                    {
+                        bool friend = ai.GetKeepValue(id, target, Player.Place.PlaceEquip) < 0;
+                        ai.UpdatePlayerRelation(player, target, friend);
+                    }
+                }
+                else if (choice.Contains("playerChosen:kuangfu_jx") && player.HasFlag(Name))
+                {
+                    Player target = room.FindPlayer(choices[2]);
+                    WrappedCard slash = new WrappedCard(Slash.ClassName);
+                    if (ai is SmartAI && ai.Self != player)
+                    {
+                            if (!ai.IsCancelTarget(slash, target, player) && ai.IsCardEffect(slash, target, player) &&
+                                (ai.GetPossibleId(player).Count == 1 || ai.GetPossibleId(target).Count == 1 || ai.IsKnown(player, target)))
+                                ai.UpdatePlayerRelation(player, target, false);          //若杀的使用者和目标中的一方身份已判明，则更新双方关系为敌对
+                    }
+                    else if (ai is StupidAI _ai)
+                    {
+                        Player p = target;
+                            if (ai.GetPlayerTendency(p) != "unknown" && !ai.IsCancelTarget(slash, p, player) && ai.IsCardEffect(slash, p, player))
+                            {
+                                if (ai.HasSkill("leiji|leiji_jx", p) && !ai.IsLackCard(p, "Jink") && (ai.HasArmorEffect(p, EightDiagram.ClassName) || p.HandcardNum >= 3)
+                                    && !ai.HasSkill("tieqi_jx|liegong_jx"))
+                                {
+                                    ai.UpdatePlayerIntention(player, ai.GetPlayerTendency(p), 60);
+                                }
+                                else if (ai.HasSkill(TrustedAI.MasochismSkill, p) && ai.HasSkill("jueqing", player))
+                                {
+                                    ai.UpdatePlayerRelation(player, p, false);
+                                }
+                                else
+                                {
+                                    int count = 1;
+                                    if (ai.HasSkill("liegong_jx", player) && player.Hp <= p.Hp) count++;
+                                    DamageStruct damage = new DamageStruct(slash, player, p, count);
+                                    if (slash.Name == FireSlash.ClassName) damage.Nature = DamageStruct.DamageNature.Fire;
+                                    else if (slash.Name == ThunderSlash.ClassName) damage.Nature = DamageStruct.DamageNature.Thunder;
+
+                                    if ((ai.HasSkill("zhiman_jx", player) || player.HasWeapon(IceSword.ClassName)) && ai.GetPlayerTendency(player) != "unknown")
+                                        return;
+
+                                    if (ai.HasSkill("zhiman_jx", player))
+                                    {
+                                        bool good = p.JudgingArea.Count > 0;
+                                        if (!good)
+                                        {
+                                            foreach (int id in p.GetEquips())
+                                            {
+                                                if (ai.GetKeepValue(id, p, Place.PlaceEquip) < 0)
+                                                {
+                                                    good = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (good)
+                                        {
+                                            if (ai.GetPlayerTendency(p) == "lord" || ai.GetPlayerTendency(p) == "loyalist")
+                                                ai.UpdatePlayerIntention(player, "rebel", 20);
+                                            else
+                                                ai.UpdatePlayerIntention(player, "loyalist", 20);
+
+                                        return;
+                                        }
+                                    }
+
+                                    if (player.HasWeapon(IceSword.ClassName))
+                                    {
+                                        int good = 0;
+                                        foreach (int id in p.GetEquips())
+                                        {
+                                            if (ai.GetKeepValue(id, p, Player.Place.PlaceEquip) < 0)
+                                            {
+                                                good++;
+                                            }
+                                        }
+                                        if (good > 0 && (good > 1 || p.HandcardNum == 0))
+                                        {
+                                            if (ai.GetPlayerTendency(p) == "lord" || ai.GetPlayerTendency(p) == "loyalist")
+                                                ai.UpdatePlayerIntention(player, "rebel", 20);
+                                            else
+                                                ai.UpdatePlayerIntention(player, "loyalist", 20);
+
+                                        return;
+                                        }
+
+                                        if (_ai.NeedDamage(damage) && player.GetCardCount(true) - good > 1)
+                                        {
+                                            if (ai.GetPlayerTendency(p) == "lord" || ai.GetPlayerTendency(p) == "loyalist")
+                                                ai.UpdatePlayerIntention(player, "rebel", 40);
+                                            else
+                                                ai.UpdatePlayerIntention(player, "loyalist", 40);
+                                        }
+                                    }
+
+                                    if (_ai.NeedDamage(damage))
+                                        ai.UpdatePlayerIntention(player, ai.GetPlayerTendency(p), 60);
+                                    else
+                                        ai.UpdatePlayerRelation(player, p, false);          //若杀的使用者和目标中的一方身份已判明，则更新双方关系为敌对
+                                }
+                            }
+                        }
+                }
+            }
+        }
+
+        public override List<WrappedCard> GetTurnUse(TrustedAI ai, Player player)
+        {
+            Room room = ai.Room;
+            if (ai.WillShowForAttack() && !player.HasUsed(KuangfuCard.ClassName))
+            {
+                foreach (Player p in room.GetAlivePlayers())
+                    if (p.HasEquip() && RoomLogic.CanDiscard(room, player, p, "e"))
+                        return new List<WrappedCard> { new WrappedCard(KuangfuCard.ClassName) { Skill = Name, ShowSkill = Name } };
+            }
+            return new List<WrappedCard>();
+        }
+
+        public override List<Player> OnPlayerChosen(TrustedAI ai, Player player, List<Player> targets, int min, int max)
+        {
+            if (player.HasFlag(Name))
+            {
+                if (ai.Target[Name] != null)
+                    return new List<Player> { ai.Target[Name] };
+            }
+            else
+            {
+                WrappedCard slash = new WrappedCard(Slash.ClassName)
+                {
+                    Skill = "_kuangfu_jx",
+                    DistanceLimited = false
+                };
+                List<WrappedCard> cards = new List<WrappedCard> { slash };
+                List<ScoreStruct> scores = ai.CaculateSlashIncome(player, cards, null, false);
+                if (scores.Count > 0)
+                {
+                    return new List<Player> { scores[0].Players[0] };
+                }
+            }
+
+            return new List<Player>();
+        }
+    }
+
+    public class KuangfuCardAI : UseCard
+    {
+        public KuangfuCardAI() : base(KuangfuCard.ClassName)
+        {
+        }
+
+        public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
+        {
+            ai.Target["kuangfu_jx"] = null;
+            Room room = ai.Room;
+            List<ScoreStruct> scores = new List<ScoreStruct>();
+            foreach (Player p in room.GetOtherPlayers(player))
+            {
+                if (p.HasEquip() && RoomLogic.CanDiscard(room, player, p, "e"))
+                {
+                    ScoreStruct score = ai.FindCards2Discard(player, p, "kuangfu_jx", "e", FunctionCard.HandlingMethod.MethodDiscard);
+                    score.Players = new List<Player> { p };
+                }
+            }
+
+            if (scores.Count > 0)
+            {
+                scores.Sort((x, y) => { return x.Score > y.Score ? -1 : 1; });
+                if (scores[0].Score > 0)
+                {
+                    ai.Target["kuangfu_jx"] = scores[0].Players[0];
+                    use.Card = card;
+                    return;
+                }
+            }
+            else if (player.HasEquip() && RoomLogic.CanDiscard(room, player, player, "e"))
+            {
+                WrappedCard slash = new WrappedCard(Slash.ClassName)
+                {
+                    Skill = "_kuangfu_jx",
+                    DistanceLimited = false
+                };
+                List<WrappedCard> cards = new List<WrappedCard> { slash };
+                scores = ai.CaculateSlashIncome(player, cards, null, false);
+                if (scores.Count > 0 && scores[0].Score >= 4)
+                {
+                    ai.Target["kuangfu_jx"] = player;
+                    use.Card = card;
+                    return;
+                }
+            }
+        }
+
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return 5;
         }
     }
 
