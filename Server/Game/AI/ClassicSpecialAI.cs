@@ -5646,7 +5646,7 @@ namespace SanguoshaServer.AI
             ai.SortByDefense(ref enemies);
             foreach (Player p in enemies)
             {
-                if (!p.IsNude())
+                if (!p.IsNude() && p.GetEquips().Count < player.GetEquips().Count)
                 {
                     use.Card = card;
                     use.To.Add(p);
@@ -7662,6 +7662,25 @@ namespace SanguoshaServer.AI
                     }
                 }
             }
+        }
+
+        public override AskForMoveCardsStruct OnMoveCards(TrustedAI ai, Player player, List<int> ups, List<int> downs, int min, int max)
+        {
+            Room room = ai.Room;
+            AskForMoveCardsStruct move = new AskForMoveCardsStruct();
+            move.Success = true;
+            move.Top = new List<int>(ups);
+            move.Bottom = new List<int>();
+            if (room.GetTag(Name) is Player target)
+            {
+                if (ups.Count < player.HandcardNum)
+                {
+                    move.Success = false;
+                    move.Top = new List<int>();
+                }
+            }
+
+            return move;
         }
 
         public override List<int> OnExchange(TrustedAI ai, Player player, string pattern, int min, int max, string pile)
