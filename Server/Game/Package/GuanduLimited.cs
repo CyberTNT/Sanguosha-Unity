@@ -679,7 +679,7 @@ namespace SanguoshaServer.Package
             {
                 to.SetMark(Name, 1);
                 if (to.HandcardNum < to.MaxHp)
-                    room.DrawCards(to, new DrawCardStruct(to.MaxHp - to.HandcardNum, player, Name));
+                    room.DrawCards(to, new DrawCardStruct(to.MaxHp <= 5? to.MaxHp - to.HandcardNum: to.HandcardNum > 5? 0: 5 - to.HandcardNum, player, Name));
             }
 
             return false;
