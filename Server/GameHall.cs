@@ -459,7 +459,7 @@ namespace SanguoshaServer
                                     if (data.Body[1].StartsWith("/"))
                                     {
                                         IEnumerable<string> MessageCommand = data.Body[1].Remove(0, 1).Split(' ');
-                                        RoomMessage.RunOptions(room, MessageCommand);
+                                        RoomMessage.RunOptions(room, sourcer, MessageCommand);
                                     }
                                     else
                                     {

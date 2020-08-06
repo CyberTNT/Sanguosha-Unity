@@ -80,11 +80,11 @@ namespace SanguoshaServer.Game
             }
         }
 
-        public static void RunOptions(Room room, IEnumerable<string> commandMessage) 
+        public static void RunOptions(Room room, Client client, IEnumerable<string> commandMessage) 
         {
             var parser = new Parser(config => config.HelpWriter = null);
             var parseresult = CommandLine.Parser.Default.ParseArguments<BanOptions>(commandMessage);
-            parseresult.WithParsed<BanOptions>(options => Ban(options, room))
+            parseresult.WithParsed<BanOptions>(options => Ban(options, room, client))
                        .WithNotParsed(errors => HandleParseError(errors, room, parseresult));
         }
 
@@ -96,16 +96,29 @@ namespace SanguoshaServer.Game
 
         }
 
-        public static void Ban(BanOptions opts, Room room) 
-        {
-            room.Setting.BanHeroList.Clear();
+        public static void Ban(BanOptions opts, Room room, Client client) 
+        {          
             if(opts.RawBanList.Count() > 0)
             {
-                foreach (var i in opts.RawBanList)
+                if(client == room.Host)
                 {
-                    room.Setting.BanHeroList.Add(i);
-                    SystemMessage(room, string.Format("武将{0}加入到了禁将表中", i));
+                    room.Setting.BanHeroList.Clear();
+                    foreach (var i in opts.RawBanList)
+                    {
+                        room.Setting.BanHeroList.Add(i);
+                        SystemMessage(room, string.Format("武将{0}加入到了禁将表中", i));
+                    }
                 }
+                else if(room.Setting.BanHeroList.Count != 0)
+                {
+                    string banText = string.Join(",", room.Setting.BanHeroList);
+                    SystemMessage(room, string.Format("此房间已禁将, {0}已被禁止使用", banText));
+                }
+                else
+                {
+                    SystemMessage(room, "此房间没有禁将");
+                }
+                
 
             }
         }
