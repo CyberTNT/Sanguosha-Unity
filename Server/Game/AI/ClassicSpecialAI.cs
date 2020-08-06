@@ -85,6 +85,7 @@ namespace SanguoshaServer.AI
                 new NeifaAI(),
                 new ZhenduJXAI(),
                 new QiluanJXAI(),
+                new BeizhanCAI(),
 
                 new XuejiAI(),
                 new LiangzhuAI(),
@@ -5200,7 +5201,23 @@ namespace SanguoshaServer.AI
     {
         public BiluanAI() : base("biluan") { }
 
-        public override bool OnSkillInvoke(TrustedAI ai, Player player, object data) => player.HandcardNum > 3;
+        public override List<int> OnDiscard(TrustedAI ai, Player player, List<int> ids, int min, int max, bool option)
+        {
+            List<int> cards = new List<int>();
+            Room room = ai.Room;
+            foreach (int id in player.GetCards("he"))
+            {
+                if (RoomLogic.CanDiscard(room, player, player, id))
+                    cards.Add(id);
+            }
+            if (cards.Count > 0)
+            {
+                List<double> values = ai.SortByKeepValue(ref cards, false);
+                if (values[0] < 4)
+                    return new List<int> { cards[0] };
+            }
+            return new List<int>();
+        }
     }
 
     public class LixiaAI : SkillEvent
@@ -6728,6 +6745,38 @@ namespace SanguoshaServer.AI
         }
     }
 
+    public class BeizhanCAI : SkillEvent
+    {
+        public BeizhanCAI() : base("beizhan_classic") { }
+
+        public override List<Player> OnPlayerChosen(TrustedAI ai, Player player, List<Player> targets, int min, int max)
+        {
+            int count = 0;
+            Player target = null;
+
+            foreach (Player p in ai.GetFriends(player))
+            {
+                if (p.MaxHp - p.HandcardNum > count && p.HandcardNum < 5)
+                {
+                    count = p.MaxHp - p.HandcardNum;
+                    target = p;
+                }
+            }
+
+            if (target != null) return new List<Player> { target };
+
+            foreach (Player p in ai.GetEnemies(player))
+            {
+                if (!ai.WillSkipPlayPhase(p) && (p.HandcardNum > p.MaxHp ||  p.HandcardNum >= 5))
+                {
+                    return new List<Player> { p };
+                }
+            }
+
+            return new List<Player>();
+        }
+    }
+
     public class HongyuanAI : SkillEvent
     {
         public HongyuanAI() : base("hongyuan")
@@ -7595,7 +7644,7 @@ namespace SanguoshaServer.AI
 
         public override void DamageEffect(TrustedAI ai, ref DamageStruct damage, DamageStruct.DamageStep step)
         {
-            if (ai.HasSkill(Name, damage.To) && damage.To.IsKongcheng())
+            if (ai.HasSkill(Name, damage.To) && damage.To.IsKongcheng() && damage.Card != null && damage.Card.Name.Contains(Slash.ClassName))
                 damage.Damage++;
         }
     }
@@ -7610,9 +7659,9 @@ namespace SanguoshaServer.AI
             {
                 string[] strs = str.Split(':');
                 int count = int.Parse(strs[strs.Length - 1]);
-                if (count >= 4) return true;
+                if (count >= 2) return true;
                 if (ai.WillSkipPlayPhase(player) && count > 2) return true;
-                if (count > 2 && count + player.HandcardNum <= player.MaxHp) return true;
+                if (count > 0 && count + 2 + player.HandcardNum <= player.MaxHp) return true;
             }
 
             return false;

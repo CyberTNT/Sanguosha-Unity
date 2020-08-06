@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using CommonClass;
 using CommonClass.Game;
 using SanguoshaServer.Game;
@@ -39,6 +40,7 @@ namespace SanguoshaServer.AI
                 new TianxiangJXAI(),
                 new PoluSJAI(),
                 new ZhijianJXAI(),
+                new HanzhanAI(),
 
                 new QiangxiJXAI(),
                 new TuntianJXAI(),
@@ -1228,6 +1230,48 @@ namespace SanguoshaServer.AI
         }
     }
 
+    public class HanzhanAI : SkillEvent
+    {
+        public HanzhanAI() : base("hanzhan")
+        {
+            key = new List<string> { "skillInvoke:hanzhan" };
+        }
+
+        public override void OnEvent(TrustedAI ai, TriggerEvent triggerEvent, Player player, object data)
+        {
+            if (triggerEvent == TriggerEvent.ChoiceMade && data is string str)
+            {
+                List<string> strs = new List<string>(str.Split(':'));
+                if (strs[1] == Name)
+                {
+                    Room room = ai.Room;
+                    Player target = null;
+                    foreach (Player p in room.GetAlivePlayers())
+                    {
+                        if (p.HasFlag(Name))
+                        {
+                            target = p;
+                            break;
+                        }
+                    }
+                    bool friendly = strs[2] == "no";
+                    if (ai.GetPlayerTendency(target) != "unknown")
+                        ai.UpdatePlayerRelation(player, target, friendly);
+                }
+            }
+        }
+
+        public override bool OnSkillInvoke(TrustedAI ai, Player player, object data)
+        {
+            if (data is Player target)
+            {
+                return !ai.IsFriend(target);
+            }
+
+            return false;
+        }
+    }
+
     public class ShuangxiongJXAI : SkillEvent
     {
         public ShuangxiongJXAI() : base("shuangxiong_jx")
@@ -1320,9 +1364,8 @@ namespace SanguoshaServer.AI
                 }
             }
 
-            if (wanted.Count == 0) wanted = ups;
-            if (wanted.Count > 1)
-                ai.SortByUseValue(ref wanted);
+            if (wanted.Count == 0) wanted = new List<int>(ups);
+            if (wanted.Count > 1) ai.SortByUseValue(ref wanted);
 
             result.Bottom.Add(wanted[0]);
             foreach (int id in ups)

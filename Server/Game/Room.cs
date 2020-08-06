@@ -9300,29 +9300,27 @@ namespace SanguoshaServer.Game
                     return result;
             }
 
+            PindianInfo info = new PindianInfo()
+            {
+                From = from,
+                Reason = reason,
+                Cards = new Dictionary<Player, WrappedCard>()
+            };
+            info.Cards[from] = card;
+            foreach (Player p in to)
+                info.Cards[p] = null;
+
             if (type == PindianInfo.PindianType.Pindian)
             {
-                PindianInfo info = new PindianInfo
-                {
-                    From = from,
-                    Reason = reason,
-                    Card = card
-                };
                 object data = info;
-                RoomThread.Trigger(TriggerEvent.PindianCard, this, from, ref data);
+                RoomThread.Trigger(TriggerEvent.PindianCard, this, null, ref data);
+
                 info = (PindianInfo)data;
-                if (info.Card != null)
-                    card = info.Card;
+                card = info.Cards[from];
 
                 for (int index = 0; index < to.Count; index++)
-                {
-                    info.Card = null;
-                    data = info;
-                    RoomThread.Trigger(TriggerEvent.PindianCard, this, to[index], ref data);
-                    info = (PindianInfo)data;
-                    if (info.Card != null)
-                        to_cards[index] = info.Card.GetEffectiveId();
-                }
+                    if (info.Cards[to[index]] != null)
+                        to_cards[index] = info.Cards[to[index]].GetEffectiveId();
             }
 
             Thread.Sleep(500);
@@ -9338,7 +9336,7 @@ namespace SanguoshaServer.Game
             _m_roomState.SetCurrentCardUsePattern(".");
             _m_roomState.SetCurrentCardUseReason(CardUseStruct.CardUseReason.CARD_USE_REASON_UNKNOWN);
 
-            TrustedAI ai = null;
+            TrustedAI ai;
             if (from_card == null)
             {
                 ai = GetAI(from);
@@ -9672,19 +9670,18 @@ namespace SanguoshaServer.Game
                     }
                     if (!match && (visible || isTrustAI))
                     {
-                        int fromPos = 0;
-                        int toPos = 0;
                         List<int> ups = new List<int>(upcards);
                         List<int> downs = new List<int>(downcards);
                         int upcount = Math.Max(upcards.Count, downcards.Count);
 
+                        int fromPos;
+                        int toPos;
                         for (int i = 0; i < top_cards.Count; ++i)
                         {
-                            int target_id = -1;
                             fromPos = 0;
                             if (top_cards[i] != ups[i])
                             {
-                                target_id = top_cards[i];
+                                int target_id = top_cards[i];
                                 toPos = i + 1;
                                 foreach (int id in ups)
                                 {
@@ -9735,7 +9732,6 @@ namespace SanguoshaServer.Game
 
                         if (ups.Count > top_cards.Count)
                         {
-
                             int newcount = ups.Count - top_cards.Count;
                             for (int i = 1; i <= newcount; ++i)
                             {
@@ -9790,6 +9786,8 @@ namespace SanguoshaServer.Game
                     }
                     Thread.Sleep(1000);
                 }
+                else
+                    System.Diagnostics.Debug.Assert(success);
             }
             else
             {
