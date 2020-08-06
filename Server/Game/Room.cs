@@ -2959,7 +2959,7 @@ namespace SanguoshaServer.Game
             }
 
             //加载武将
-            Generals = Engine.GetGenerals(Setting.GeneralPackage, Setting.GameMode, false);
+            Generals = Engine.GetGenerals(Setting.GeneralPackage, Setting.BanHeroList, Setting.GameMode, false);
             //游戏卡牌、玩家身份、座次由剧本函数生成
             Scenario.PrepareForStart(this, ref m_players, ref pile1, ref m_drawPile);
 

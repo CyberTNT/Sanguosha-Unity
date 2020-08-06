@@ -878,6 +878,7 @@ namespace CommonClass.Game
         public bool SpeakForbidden { set; get; }
         public bool LuckCard { set; get; }
         public List<string> GeneralPackage { set; get; }
+        public List<string> BanHeroList { set; get; }
         public List<string> CardPackage { set; get; }
 
         public float GetCommandTimeout(CommonClassLibrary.CommandType command, ProcessInstanceType instance)

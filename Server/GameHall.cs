@@ -455,9 +455,18 @@ namespace SanguoshaServer
                             {
                                 if (!room.GameStarted)
                                 {
-                                    foreach (Client dest in room.Clients)
-                                        if (dest.GameRoom == room.RoomId)
-                                            dest.SendMessage(message);
+                                    //对大厅的聊天进行拦截以获取命令
+                                    if (data.Body[1].StartsWith("/"))
+                                    {
+                                        IEnumerable<string> MessageCommand = data.Body[1].Remove(0, 1).Split(' ');
+                                        RoomMessage.RunOptions(room, MessageCommand);
+                                    }
+                                    else
+                                    {
+                                        foreach (Client dest in room.Clients)
+                                            if (dest.GameRoom == room.RoomId)
+                                                dest.SendMessage(message);
+                                    }                                   
                                 }
                                 else
                                 {
@@ -497,7 +506,9 @@ namespace SanguoshaServer
                 Room room = null;
                 switch (data.Protocol)
                 {
-                    case Protocol.CreateRoom:
+                    case Protocol.CreateRoom:                        
+                        data.Body[0] = data.Body[0].Replace('}', ',');
+                        data.Body[0] += "\"BanHeroList\":[]}"; //一个临时的初始化banlist的方法
                         CreateRoom(client, JsonUntity.Json2Object<GameSetting>(data.Body[0]));
                         break;
                     case Protocol.JoinRoom:

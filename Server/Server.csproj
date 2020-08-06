@@ -76,6 +76,9 @@
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="CommandLine, Version=2.8.0.0, Culture=neutral, PublicKeyToken=5a870481e358d379, processorArchitecture=MSIL">
+      <HintPath>..\packages\CommandLineParser.2.8.0\lib\net461\CommandLine.dll</HintPath>
+    </Reference>
     <Reference Include="log4net, Version=2.0.8.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <HintPath>..\packages\log4net.2.0.8\lib\net45-full\log4net.dll</HintPath>
     </Reference>
@@ -152,6 +155,7 @@
     <Compile Include="Game\Engine.cs" />
     <Compile Include="Game\ExpPattern.cs" />
     <Compile Include="Game\Extensions\Titles.cs" />
+    <Compile Include="Game\MessageCommand.cs" />
     <Compile Include="Game\Package\Anniversary.cs" />
     <Compile Include="Game\Package\ClassicYing.cs" />
     <Compile Include="Game\Package\FamousGeneral.cs" />

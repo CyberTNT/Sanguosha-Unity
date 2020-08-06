@@ -1,6 +1,10 @@
 ﻿using CommonClassLibrary;
 using System;
 using System.Collections.Generic;
+using CommandLine;
+using CommandLine.Text;
+using System.Windows.Forms;
+using System.Linq;
 
 namespace SanguoshaServer.Game
 {
@@ -75,5 +79,36 @@ namespace SanguoshaServer.Game
                 room.Debug(string.Format("error on SystemMessage {0} {1} {2}", e.Message, e.Source, e.HelpLink));
             }
         }
+
+        public static void RunOptions(Room room, IEnumerable<string> commandMessage) 
+        {
+            var parser = new Parser(config => config.HelpWriter = null);
+            var parseresult = CommandLine.Parser.Default.ParseArguments<BanOptions>(commandMessage);
+            parseresult.WithParsed<BanOptions>(options => Ban(options, room))
+                       .WithNotParsed(errors => HandleParseError(errors, room, parseresult));
+        }
+
+        private static void HandleParseError<T>(IEnumerable<Error> errors, Room room, ParserResult<T> result)
+        {
+            string helpText = null;
+            helpText = HelpText.AutoBuild(result);
+            SystemMessage(room, helpText);
+
+        }
+
+        public static void Ban(BanOptions opts, Room room) 
+        {
+            room.Setting.BanHeroList.Clear();
+            if(opts.RawBanList.Count() > 0)
+            {
+                foreach (var i in opts.RawBanList)
+                {
+                    room.Setting.BanHeroList.Add(i);
+                    SystemMessage(room, string.Format("武将{0}加入到了禁将表中", i));
+                }
+
+            }
+        }
+
     }
 }
