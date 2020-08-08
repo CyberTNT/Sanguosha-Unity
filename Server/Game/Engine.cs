@@ -653,7 +653,7 @@ namespace SanguoshaServer.Game
                     foreach (string name in pack_generals[key])
                     {
                         General general = GetGeneral(name, mode);
-                        if (general != null && (include_unselectable || general.Selectable) && !banList.Contains(general.Name)) //添加banlist的过滤实现单房禁将
+                        if (general != null && (include_unselectable || general.Selectable) && (banList != null ? !banList.Contains(general.Name) : true)) //添加banlist的过滤实现单房禁将
                             generals.Add(general.Name);
                     }
                 }                

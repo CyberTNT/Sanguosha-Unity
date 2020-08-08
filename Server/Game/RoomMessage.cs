@@ -97,8 +97,8 @@ namespace SanguoshaServer.Game
         }
 
         public static void Ban(BanOptions opts, Room room, Client client) 
-        {          
-            if(opts.RawBanList.Count() > 0)
+        {            
+            if(opts.RawBanList != null && opts.RawBanList.Count() > 0)
             {
                 if(client == room.Host)
                 {

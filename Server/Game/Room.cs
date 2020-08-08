@@ -2538,6 +2538,7 @@ namespace SanguoshaServer.Game
                 gameSetting.PassWord = Setting.PassWord;
                 gameSetting.GameMode = Setting.GameMode;
                 gameSetting.PlayerNum = Setting.PlayerNum;
+                gameSetting.BanHeroList = Setting.BanHeroList;
                 Setting = gameSetting;
 
                 SendRoomSetting2Client();
