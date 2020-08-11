@@ -2124,7 +2124,7 @@ namespace SanguoshaServer.Package
         }
 
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
-        {   if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.From_pile_names.Contains("&ring")
+        {   if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.From != null && move.From_pile_names.Contains("&ring")
                 && move.From_places.Contains(Place.PlaceSpecial) && base.Triggerable(move.From, room))
             {
                 List<WrappedCard.CardSuit> suits = new List<WrappedCard.CardSuit>();
