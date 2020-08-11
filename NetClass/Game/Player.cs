@@ -1,6 +1,7 @@
 ﻿using CommonClassLibrary;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace CommonClass.Game
@@ -30,7 +31,7 @@ namespace CommonClass.Game
         };
         public enum PlayerRole
         {
-            Lord, Loyalist, Rebel, Renegade
+            Lord, Loyalist, Rebel, Renegade, Careerist, Unknown
         };
 
         public enum Gender
@@ -57,7 +58,8 @@ namespace CommonClass.Game
         public bool Dual { set; get; } = true;
         public Gender PlayerGender { set; get; }
         public int Hp { set; get; }
-        public int MaxHp {
+        public int MaxHp
+        {
             get => _maxHp;
             set {
                 _maxHp = value;
@@ -65,8 +67,9 @@ namespace CommonClass.Game
                     Hp = _maxHp;
             }
         }
+        public Dictionary<string, bool> TurnSkillState { set; get; } = new Dictionary<string, bool>();
         public string Kingdom { set; get; }
-        public string Role { set; get; }
+        public string Role { set; get; } = string.Empty;
         public bool RoleShown { set; get; } = false;
         public string Status { set; get; }
         public int Seat { set; get; }
@@ -85,7 +88,9 @@ namespace CommonClass.Game
         public bool Chained { set; get; } = false;
         public bool Removed { set; get; } = false;
         public List<int> JudgingArea { set; get; } = new List<int>();
-        public List<string> DisableShow { set; get; } = new List<string>();
+        public bool JudgingAreaAvailable { set; get; } = true;
+        public Dictionary<bool, List<string>> DisableShow { set; get; } = new Dictionary<bool, List<string>>();
+        public Dictionary<string, string> ArmorNullifiedList { set; get; } = new Dictionary<string, string>();
         public bool ScenarioRoleShown { set; get; } = false;
         public int HandcardNum { get { return HandCards.Count(); } }
         public List<int> HandCards { set; get; } = new List<int>();
@@ -98,7 +103,7 @@ namespace CommonClass.Game
         public List<PlayerPhase> Phases { set; get; } = new List<PlayerPhase>();
         public int PhasesIndex { set; get; }
         public List<PhaseStruct> PhasesState { set; get; } = new List<PhaseStruct>();
-        public Dictionary<int, List<string>> Limitation { get; set; } = new Dictionary<int, List<string>>();
+        public Dictionary<string, Dictionary<int, List<string>>> Limitation { get; set; } = new Dictionary<string, Dictionary<int, List<string>>>();
         public ResultStruct Result { get; set; } = new ResultStruct();
 
         private int _maxHp;
@@ -115,14 +120,14 @@ namespace CommonClass.Game
 
             return null;
         }
-
+        
         public void Copy(Player other)
         {
             Name = other.Name;
             ClientId = other.ClientId;
             SceenName = other.SceenName;
             Status = other.Status;
-            MaxHp = other.Hp;
+            MaxHp = other.MaxHp;
             Hp = other.Hp;
             Seat = other.Seat;
             DisableShow = other.DisableShow;
@@ -137,12 +142,59 @@ namespace CommonClass.Game
             Camp = other.Camp;
             PhasesState = other.PhasesState;
             PhasesIndex = other.PhasesIndex;
-            HeadAcquiredSkills = other.HeadAcquiredSkills;
-            DeputyAcquiredSkills = other.DeputyAcquiredSkills;
+            foreach (string skill in other.HeadAcquiredSkills)
+                if (!other.HasEquip(skill))
+                        HeadAcquiredSkills.Add(skill);
+            foreach (string skill in other.DeputyAcquiredSkills)
+                if (!other.HasEquip(skill))
+                    DeputyAcquiredSkills.Add(skill);
             StringMarks = other.StringMarks;
+            TurnSkillState = other.TurnSkillState;
+            JudgingAreaAvailable = other.JudgingAreaAvailable;
+            Result = other.Result;
+        }
 
-            if (other.ContainsTag("huashen"))
-                SetTag("huashen", other.GetTag("huashen"));
+        public void CopyAll(Player other)
+        {
+            Name = other.Name;
+            ClientId = other.ClientId;
+            SceenName = other.SceenName;
+            Status = other.Status;
+            MaxHp = other.MaxHp;
+            Hp = other.Hp;
+            Seat = other.Seat;
+            DisableShow = other.DisableShow;
+            FaceUp = other.FaceUp;
+            Removed = other.Removed;
+            DuanChang = other.DuanChang;
+            Alive = other.Alive;
+            Chained = other.Chained;
+            Next = other.Next;
+            General1Showed = other.General1Showed;
+            General2Showed = other.General2Showed;
+            Camp = other.Camp;
+            PhasesState = other.PhasesState;
+            PhasesIndex = other.PhasesIndex;
+            foreach (string skill in other.HeadAcquiredSkills)
+                if (!other.HasEquip(skill))
+                    HeadAcquiredSkills.Add(skill);
+            foreach (string skill in other.DeputyAcquiredSkills)
+                if (!other.HasEquip(skill))
+                    DeputyAcquiredSkills.Add(skill);
+            StringMarks = other.StringMarks;
+            TurnSkillState = other.TurnSkillState;
+            JudgingAreaAvailable = other.JudgingAreaAvailable;
+            HandCards = other.HandCards;
+            Role = other.Role;
+            Kingdom = other.Kingdom;
+            General1 = other.General1;
+            General2 = other.General2;
+            HeadSkinId = other.HeadSkinId;
+            DeputySkinId = other.DeputySkinId;
+            Marks = other.Marks;
+            StringMarks = other.StringMarks;
+            PlayerGender = other.PlayerGender;
+            Result = other.Result;
         }
 
         //绝对不能给Player类设置class类的tag
@@ -188,68 +240,60 @@ namespace CommonClass.Game
             return PlayerGender == Gender.Female;
         }
 
+        public void SetAmorNullified2(Player sourcer, string reason)
+        {
+            ArmorNullifiedList[sourcer.Name] = reason;
+        }
+
+        public void RemoveArmorNullified(Player sourcer)
+        {
+            ArmorNullifiedList.Remove(sourcer.Name);
+        }
+
+        public bool ArmorIsNullifiedBy(Player sourcer)
+        {
+            return sourcer != null && sourcer.Alive && ArmorNullifiedList.ContainsKey(sourcer.Name);
+        }
+
         public void SetDisableShow(string flags, string reason)
         {
-            if (Flags.Contains("h"))
+            if (flags.Contains("h"))
             {
-                if (DisableShowList(true).Contains(reason))
-                    return;
+                if (DisableShow.ContainsKey(true) && !DisableShow[true].Contains(reason))
+                    DisableShow[true].Add(reason);
+                else if (!DisableShow.ContainsKey(true))
+                    DisableShow[true] = new List<string> { reason };
             }
             if (flags.Contains('d'))
             {
-                if (DisableShowList(false).Contains(reason))
-                    return;
+                if (DisableShow.ContainsKey(false) && !DisableShow[false].Contains(reason))
+                    DisableShow[false].Add(reason);
+                else if (!DisableShow.ContainsKey(false))
+                    DisableShow[false] = new List<string> { reason };
             }
-
-            string dis_str = flags + ',' + reason;
-            DisableShow.Add(dis_str);
-            //通知UI更新
         }
         public void RemoveDisableShow(string reason)
         {
-            List<string> remove_list = new List<string>();
-            foreach (string dis_str in DisableShow)
-            {
-                string dis_reason = dis_str.Split(',')[1];
-                if (dis_reason == reason)
-                    remove_list.Add(dis_str);
-            }
-
-            if (remove_list.Count() == 0) return;
-
-            foreach (string to_remove in remove_list)
-                DisableShow.Remove(to_remove);
-
-
-            //通知UI更新
+            if (DisableShow.ContainsKey(true))
+                DisableShow[true].RemoveAll(t => t == reason);
+            if (DisableShow.ContainsKey(false))
+                DisableShow[false].RemoveAll(t => t == reason);
         }
 
         public List<string> DisableShowList(bool head)
         {
-            string head_flag = "h";
-            if (!head)
-                head_flag = "d";
+            if (DisableShow.ContainsKey(head))
+                return DisableShow[head];
 
-            List<string> r = new List<string>();
-            foreach (string dis_str in DisableShow)
-            {
-                string[] dis_list = dis_str.Split(',');
-                if (dis_list[0].Contains(head_flag))
-                    r.Add(dis_list[0]);
-            }
-
-            return r;
+            return new List<string>();
         }
 
         public bool CanShowGeneral(string flags)
         {
             bool head = true, deputy = true;
-            foreach (string dis_str in DisableShow)
-            {
-                string[] dis_list = dis_str.Split(',');
-                if (dis_list[0].Contains("h")) head = false;
-                if (dis_list[0].Contains("d")) deputy = false;
-            }
+            if (DisableShow.ContainsKey(true) && DisableShow[true].Count > 0) head = false;
+            if (DisableShow.ContainsKey(false) && DisableShow[false].Count > 0) deputy = false;
+
             if (string.IsNullOrEmpty(flags)) return head || deputy || HasShownOneGeneral();
             if (flags == "h") return head || General1Showed;
             if (flags == "d") return deputy || General2Showed;
@@ -290,6 +334,8 @@ namespace CommonClass.Game
 
         public List<int> GetCards(string flags)
         {
+            Debug.Assert(flags.Contains("h") || flags.Contains("e") || flags.Contains("j"));
+
             List <int> cards = new List<int>();
             if (flags.Contains("h"))
                 cards.AddRange(new List<int>(HandCards));
@@ -386,21 +432,29 @@ namespace CommonClass.Game
 
         public void BanEquip(int index)
         {
-            if (equip_state.Keys.Contains(index))
+            if (equip_state.ContainsKey(index))
                 equip_state[index] = false;
         }
         public void RecoverEquip(int index)
         {
-            if (equip_state.Keys.Contains(index))
+            if (equip_state.ContainsKey(index))
                 equip_state[index] = true;
         }
 
         public bool CanPutEquip(int index)
         {
-            if (equip_state.Keys.Contains(index))
+            if (equip_state.ContainsKey(index))
             {
                 return equip_state[index] && (index != 2 && index != 3 || !GetSpecialEquip());
             }
+
+            return false;
+        }
+
+        public bool EquipIsBaned(int index)
+        {
+            if (equip_state.ContainsKey(index))
+                return !equip_state[index];
 
             return false;
         }
@@ -446,7 +500,7 @@ namespace CommonClass.Game
                 value += add_num;
                 SetMark(mark, value);
             }
-            else
+            else if (add_num > 0)
                 Marks.Add(mark, add_num);
         }
 
@@ -462,10 +516,12 @@ namespace CommonClass.Game
         {
             if (Marks.ContainsKey(mark))
             {
-                if (Marks[mark] != value)
+                if (value == 0)
+                    Marks.Remove(mark);
+                else if (Marks[mark] != value)
                     Marks[mark] = value;
             }
-            else
+            else if (value > 0)
                 Marks.Add(mark, value);
         }
 
@@ -483,8 +539,13 @@ namespace CommonClass.Game
 
         public void RemoveStringMark(string mark)
         {
-            if (StringMarks.ContainsKey(mark))
-                StringMarks.Remove(mark);
+            if (mark == ".")
+                StringMarks.Clear();
+            else
+            {
+                if (StringMarks.ContainsKey(mark))
+                    StringMarks.Remove(mark);
+            }
         }
 
         public string GetStringMark(string mark)
@@ -846,15 +907,26 @@ namespace CommonClass.Game
             if (in_pile)
             {
                 if (Piles.ContainsKey(pile_name))
-                    Piles[pile_name].AddRange(card_ids);
+                {
+                    foreach (int id in card_ids)
+                    {
+                        Debug.Assert(!Piles[pile_name].Contains(id));
+                        Piles[pile_name].Add(id);
+                    }
+                }
                 else
                     Piles[pile_name] = new List<int>(card_ids);
             }
             else
             {
                 if (Piles.ContainsKey(pile_name))
+                {
                     foreach (int id in card_ids)
+                    {
+                        Debug.Assert(Piles[pile_name].Contains(id));
                         Piles[pile_name].Remove(id);
+                    }
+                }
             }
         }
         public bool IsSkipped(PlayerPhase phase)
@@ -862,20 +934,21 @@ namespace CommonClass.Game
             for (int i = PhasesIndex; i < PhasesState.Count; i++)
             {
                 if (PhasesState[i].Phase == phase)
-                    return PhasesState[i].Finished;
+                    return PhasesState[i].Skipped;
             }
             return false;
         }
 
-        public void InsertPhase(PlayerPhase phase)
+        public void AddPhase(PlayerPhase phase)
         {
             PhaseStruct _phase = new PhaseStruct
             {
                 Phase = phase,
-                Finished = false
+                Skipped = false,
+                Finished = false,
             };
-            Phases.Insert(PhasesIndex, phase);
-            PhasesState.Insert(PhasesIndex, _phase);
+            Phases.Insert(PhasesIndex + 1, phase);
+            PhasesState.Insert(PhasesIndex + 1, _phase);
         }
 
         public void AddCard(WrappedCard card, Place place, int location = 0)
@@ -928,7 +1001,7 @@ namespace CommonClass.Game
             }
             else
             {
-                foreach (int card_id in  HandCards) {
+                foreach (int card_id in HandCards) {
                     if (!card.SubCards.Contains(card_id))
                         return false;
                 }
@@ -949,10 +1022,14 @@ namespace CommonClass.Game
             { "loyalist", PlayerRole.Loyalist },
             { "rebel", PlayerRole.Rebel },
             { "renegade", PlayerRole.Renegade },
+            { "careerist", PlayerRole.Careerist },
         };
         public PlayerRole GetRoleEnum()
         {
-            return role_map[Role];
+            if (role_map.ContainsKey(Role))
+                return role_map[Role];
+            else
+                return PlayerRole.Unknown;
         }
     }
 }

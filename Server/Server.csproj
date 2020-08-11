@@ -54,12 +54,33 @@
   <PropertyGroup>
     <ApplicationIcon>favicon-20190408015708880.ico</ApplicationIcon>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\x64\Debug\</OutputPath>
+    <DefineConstants>CODE_ANALYSIS;DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <RunCodeAnalysis>true</RunCodeAnalysis>
+    <ErrorReport>prompt</ErrorReport>
+    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <OutputPath>bin\x64\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <PlatformTarget>x64</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>true</Prefer32Bit>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="log4net, Version=2.0.8.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <HintPath>..\packages\log4net.2.0.8\lib\net45-full\log4net.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\packages\Newtonsoft.Json.12.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\packages\Newtonsoft.Json.12.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.Common, Version=1.6.6.1, Culture=neutral, PublicKeyToken=6c80000676988ebb, processorArchitecture=MSIL">
       <HintPath>..\packages\SuperSocket.1.6.6.1\lib\net45\SuperSocket.Common.dll</HintPath>
@@ -94,10 +115,30 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Client.cs" />
-    <Compile Include="Game\AchieveCollector.cs" />
+    <Compile Include="Client\Interactivity.cs" />
+    <Compile Include="Client\Client.cs" />
+    <Compile Include="Client\ClientDBOperation.cs" />
+    <Compile Include="Game\AI\AnniversaryAI.cs" />
+    <Compile Include="Game\AI\ClassicSpecialAI.cs" />
+    <Compile Include="Game\AI\ClassicYingAI.cs" />
+    <Compile Include="Game\AI\FamousGeneralAI.cs" />
+    <Compile Include="Game\AI\HegemonySpecialAI.cs" />
+    <Compile Include="Game\AI\MobileAI.cs" />
+    <Compile Include="Game\AI\MythAI.cs" />
+    <Compile Include="Game\AI\NaturefourAI.cs" />
+    <Compile Include="Game\Extensions\AchieveCollector.cs" />
     <Compile Include="Game\AI\AI.cs" />
     <Compile Include="Game\AI\AICore.cs" />
+    <Compile Include="Game\AI\AuthorityAI.cs" />
+    <Compile Include="Game\AI\ClassicAI.cs" />
+    <Compile Include="Game\AI\GuanduCardsAI.cs" />
+    <Compile Include="Game\AI\ClassicStanderAI.cs" />
+    <Compile Include="Game\AI\GuanduLimitedAI.cs" />
+    <Compile Include="Game\AI\GuanduWarfareAI.cs" />
+    <Compile Include="Game\AI\LordCardsAI.cs" />
+    <Compile Include="Game\AI\ManeuveringCardsAI.cs" />
+    <Compile Include="Game\AI\MomentumAI.cs" />
+    <Compile Include="Game\AI\TransformationAI.cs" />
     <Compile Include="Game\AI\HegemonyAI.cs" />
     <Compile Include="Game\AI\Stander-qun.cs" />
     <Compile Include="Game\AI\Stander-shu.cs" />
@@ -110,26 +151,44 @@
     <Compile Include="Game\Bot.cs" />
     <Compile Include="Game\Engine.cs" />
     <Compile Include="Game\ExpPattern.cs" />
-    <Compile Include="Game\FunctionCard.cs" />
+    <Compile Include="Game\Extensions\Titles.cs" />
+    <Compile Include="Game\Package\Anniversary.cs" />
+    <Compile Include="Game\Package\ClassicYing.cs" />
+    <Compile Include="Game\Package\FamousGeneral.cs" />
+    <Compile Include="Game\Package\ClassicStander.cs" />
+    <Compile Include="Game\Package\ClassicStanderCards.cs" />
+    <Compile Include="Game\AI\ClassicStanderCardsAI.cs" />
+    <Compile Include="Game\Package\FunctionCard.cs" />
     <Compile Include="Game\GameThread.cs" />
     <Compile Include="Game\General.cs" />
     <Compile Include="Game\Package\Authority.cs" />
     <Compile Include="Game\Package\Formation.cs" />
     <Compile Include="Game\Package\GuanduCards.cs" />
     <Compile Include="Game\Package\GuanduLimited.cs" />
+    <Compile Include="Game\Package\Mobile.cs" />
+    <Compile Include="Game\Package\Myth.cs" />
+    <Compile Include="Game\Package\Naturefour.cs" />
+    <Compile Include="Game\Package\HegemonySpecial.cs" />
     <Compile Include="Game\Package\LordCards.cs" />
+    <Compile Include="Game\Package\ManeuveringCards.cs" />
     <Compile Include="Game\Package\Momentum.cs" />
     <Compile Include="Game\Package\Package.cs" />
+    <Compile Include="Game\Package\ClassicSpecial.cs" />
     <Compile Include="Game\Package\Stander.cs" />
     <Compile Include="Game\Package\StanderCards.cs" />
     <Compile Include="Game\Package\StrategicAdvantageCards.cs" />
     <Compile Include="Game\Package\Transformation.cs" />
     <Compile Include="Game\Room.cs" />
+    <Compile Include="Game\RoomCard.cs" />
     <Compile Include="Game\RoomLogic.cs" />
+    <Compile Include="Game\RoomMessage.cs" />
+    <Compile Include="Game\Scenario\Doudizhu.cs" />
+    <Compile Include="Game\Scenario\Classic.cs" />
     <Compile Include="Game\Scenario\GuanduWarfare.cs" />
     <Compile Include="Game\Scenario\Hegemony.cs" />
     <Compile Include="Game\Scenario\Scenario.cs" />
     <Compile Include="Game\Skills.cs" />
+    <Compile Include="LogHelper.cs" />
     <Compile Include="SQL DB\DataBase.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
@@ -151,6 +210,9 @@
     </Compile>
     <None Include="Config\log4net.config" />
     <None Include="Config\log4net.unix.config" />
+    <None Include="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>

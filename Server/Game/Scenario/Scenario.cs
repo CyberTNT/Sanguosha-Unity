@@ -1,12 +1,16 @@
 ﻿using CommonClass;
 using CommonClass.Game;
 using CommonClassLibrary;
+using SanguoshaServer.AI;
 using SanguoshaServer.Game;
+using SanguoshaServer.Package;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using static CommonClass.Game.DamageStruct;
 using static CommonClass.Game.Player;
-using static SanguoshaServer.Game.FunctionCard;
+using static SanguoshaServer.Package.FunctionCard;
 
 namespace SanguoshaServer.Scenario
 {
@@ -19,28 +23,153 @@ namespace SanguoshaServer.Scenario
         protected List<string> loyalists, rebels, renegades;
         protected GameRule rule;
         protected bool random_seat;
-        
+        protected List<Skill> skills = new List<Skill>();
+        protected Dictionary<Player, List<string>> reserved = new Dictionary<Player, List<string>>();
         public abstract void Assign(Room room);
         public abstract void PrepareForStart(Room room, ref List<Player> room_players, ref List<int> game_cards, ref List<int> m_drawPile);
-        public abstract List<string> GetWinners(Room room);
+        public abstract void PrepareForPlayers(Room room);
+        public abstract void OnChooseGeneralReply(Room room, Interactivity client);
         public virtual RoomThread GetThread(Room room)
         {
             return new RoomThread(room, rule);
         }
+        public virtual void SeatReAdjust(Room room, ref List<Player> players)
+        {
+        }
+        public List<Skill> Skills => skills;
         public abstract bool IsFriendWith(Room room, Player player, Player other);
-        public abstract bool WillBeFriendWith(Room room, Player player, Player other);
+        public abstract bool WillBeFriendWith(Room room, Player player, Player other, string show_skill = null);
+        public abstract TrustedAI GetAI(Room room, Player player);
 
+        public virtual bool IsFull(Room room)
+        {
+            return room.Clients.Count >= room.Setting.PlayerNum;
+        }
+
+        public virtual Player Marshal(Room room, Client client, Player player)
+        {
+            Player _player = new Player();
+            _player.Copy(player);
+            if (player.ClientId == client.UserID)
+            {
+                _player.ActualGeneral1 = player.ActualGeneral1;
+                _player.ActualGeneral2 = player.ActualGeneral2;
+                _player.General1 = player.General1;
+                _player.General2 = player.General2;
+                _player.Role = player.Role;
+                _player.Kingdom = player.Kingdom;
+                _player.HeadSkills = player.HeadSkills;
+                _player.DeputySkills = player.DeputySkills;
+                _player.HeadSkinId = player.HeadSkinId;
+                _player.DeputySkinId = player.DeputySkinId;
+                _player.Piles = player.Piles;
+                foreach (string mark in player.Marks.Keys)
+                    _player.SetMark(mark, player.GetMark(mark));
+                foreach (string mark in player.StringMarks.Keys)
+                    if (mark != "spirit" && mark != "huashen")
+                        _player.SetMark(mark, player.GetMark(mark));
+
+                if (player.ContainsTag("spirit"))
+                    _player.SetTag("spirit", player.GetTag("spirit"));
+
+                if (player.ContainsTag("huashen"))
+                    _player.SetTag("huashen", player.GetTag("huashen"));
+
+                _player.SetFlags("marshal");
+                _player.Status = "online";
+            }
+            else
+            {
+                List<string> invisebale_marks = new List<string>();
+                if (player.General1Showed)
+                {
+                    _player.General1 = player.General1;
+                    _player.HeadSkills = player.HeadSkills;
+                    _player.HeadSkinId = player.HeadSkinId;
+                }
+                else
+                {
+                    _player.General1 = "anjiang";
+                    foreach (string skill_name in player.HeadSkills.Keys)
+                    {
+                        Skill skill = Engine.GetSkill(skill_name);
+                        if (!string.IsNullOrEmpty(skill.LimitMark))
+                            invisebale_marks.Add(skill.LimitMark);
+                    }
+                }
+                if (!string.IsNullOrEmpty(player.General2))
+                {
+                    if (player.General2Showed)
+                    {
+                        _player.General2 = player.General2;
+                        _player.DeputySkills = player.DeputySkills;
+                        _player.DeputySkinId = player.DeputySkinId;
+                    }
+                    else
+                    {
+                        _player.General2 = "anjiang";
+                        foreach (string skill_name in player.DeputySkills.Keys)
+                        {
+                            Skill skill = Engine.GetSkill(skill_name);
+                            if (!string.IsNullOrEmpty(skill.LimitMark))
+                                invisebale_marks.Add(skill.LimitMark);
+                        }
+                    }
+                    foreach (string mark in player.StringMarks.Keys)
+                        _player.SetMark(mark, player.GetMark(mark));
+                }
+
+                if (player.HasShownOneGeneral())
+                    _player.Kingdom = player.Kingdom;
+                else
+                    _player.Kingdom = "god";
+
+                if (room.Setting.GameMode == "Hegemony" && player.HasShownOneGeneral() || player.RoleShown)
+                    _player.Role = player.Role;
+
+                foreach (string mark in player.Marks.Keys)
+                {
+                    if (mark.StartsWith("@") && !invisebale_marks.Contains(mark))
+                        _player.SetMark(mark, player.GetMark(mark));
+                }
+
+                foreach (string pile in player.Piles.Keys)
+                {
+                    bool open = false;
+                    foreach (Player p in room.Players)
+                    {
+                        if (p.ClientId == client.UserID && player.GetPileOpener(pile).Contains(p.Name))
+                        {
+                            open = true;
+                            break;
+                        }
+                    }
+
+                    if (open)
+                    {
+                        _player.PileChange(pile, player.GetPile(pile));
+                    }
+                    else
+                    {
+                        List<int> ids = new List<int>();
+                        for (int i = 0; i < player.GetPile(pile).Count; i++)
+                            ids.Add(-1);
+
+                        _player.PileChange(pile, ids);
+                    }
+                }
+            }
+
+            return _player;
+        }
+
+        public abstract List<Interactivity> CheckSurrendAvailable(Room room);
+        public abstract string GetPreWinner(Room room, Client surrender_client);
     }
 
     public abstract class GameRule : TriggerSkill
     {
         public GameRule(string name) : base(name)
-        {
-            AddTrigger();
-            AddRuleSkill();
-        }
-
-        protected virtual void AddTrigger()
         {
             events = new List<TriggerEvent>
             {
@@ -49,12 +178,11 @@ namespace SanguoshaServer.Scenario
                 TriggerEvent.PostHpReduced, TriggerEvent.EventLoseSkill, TriggerEvent.EventAcquireSkill, TriggerEvent.AskForPeaches,
                 TriggerEvent.AskForPeachesDone, TriggerEvent.BuryVictim, TriggerEvent.BeforeGameOverJudge, TriggerEvent.GameOverJudge,
                 TriggerEvent.SlashHit, TriggerEvent.SlashEffected, TriggerEvent.SlashProceed, TriggerEvent.ConfirmDamage, TriggerEvent.DamageDone, TriggerEvent.DamageComplete,
-                TriggerEvent.StartJudge, TriggerEvent.FinishRetrial, TriggerEvent.FinishJudge,
+                TriggerEvent.StartJudge, TriggerEvent.JudgeResult, TriggerEvent.FinishJudge,
                 TriggerEvent.ChoiceMade, TriggerEvent.GeneralShown, TriggerEvent.BeforeCardsMove, TriggerEvent.Death, TriggerEvent.CardsMoveOneTime
             };
         }
-
-        protected abstract void AddRuleSkill();
+        
         public override int GetPriority() => 0;
         public abstract string GetWinner(Room room);
         public override bool Triggerable(Player player, Room room)
@@ -76,7 +204,6 @@ namespace SanguoshaServer.Scenario
                     }
                 }
             }
-            room.SetTag("FirstRound", true);
             foreach (Player p in room.Players)
                 room.DrawCards(p, 4, "gamerule");
 
@@ -96,7 +223,7 @@ namespace SanguoshaServer.Scenario
             };
             room.SendLog(log);
             //player.AddMark("Global_TurnCount");      回合不该如此计算
-            player.AddHistory("Analeptic", 0);         //clear Analeptic
+            player.AddHistory(Analeptic.ClassName, 0);         //clear Analeptic
 
             if (!player.FaceUp)
             {
@@ -136,11 +263,12 @@ namespace SanguoshaServer.Scenario
                     }
                 case PlayerPhase.Play:
                     {
-                        while (player.Alive)
+                        bool add_index = true;
+                        while (player.Alive && string.IsNullOrEmpty(room.PreWinner))
                         {
-                            room.Activate(player, out CardUseStruct card_use);
+                            room.Activate(player, out CardUseStruct card_use, add_index);
                             if (card_use.Card != null)
-                                room.UseCard(card_use);
+                                add_index = room.UseCard(card_use);
                             else
                                 break;
                         }
@@ -148,9 +276,14 @@ namespace SanguoshaServer.Scenario
                     }
                 case PlayerPhase.Discard:
                     {
-                        int discard_num = player.HandcardNum - RoomLogic.GetMaxCards(room, player);
+                        List<int> handcards = new List<int>();
+                        foreach (int id in player.GetCards("h"))
+                            if (!Engine.IgnoreHandCard(room, player, id))
+                                handcards.Add(id);
+
+                        int discard_num = handcards.Count - RoomLogic.GetMaxCards(room, player);
                         if (discard_num > 0)
-                            room.AskForDiscard(player, "gamerule", discard_num, discard_num);
+                            room.AskForDiscard(player, handcards, "gamerule", discard_num, discard_num);
                         
                         break;
                     }
@@ -164,7 +297,7 @@ namespace SanguoshaServer.Scenario
                 player.AddHistory(".");
             if (player.Phase == PlayerPhase.Finish)
             {
-                player.AddHistory("Analeptic", 0);     //clear Analeptic
+                player.AddHistory(Analeptic.ClassName, 0);     //clear Analeptic
                 foreach (Player p in room.GetAllPlayers())
                     p.SetMark("multi_kill_count", 0);
             }
@@ -175,7 +308,10 @@ namespace SanguoshaServer.Scenario
             PhaseChangeStruct change = (PhaseChangeStruct)data;
             if (change.To == PlayerPhase.NotActive)
             {
-                player.SetFlags(".");
+                if (player.GetMark("TurnPlayed") == 0) player.SetMark("TurnPlayed", 1);
+                foreach (Player p in room.GetAlivePlayers())
+                    p.SetFlags(".");
+
                 RoomLogic.ClearPlayerCardLimitation(player, true);
                 foreach (Player p in room.GetAllPlayers()) {
                     if (p.GetMark("drank") > 0)
@@ -190,17 +326,17 @@ namespace SanguoshaServer.Scenario
                         room.SetPlayerMark(p, "drank", 0);
                     }
                 }
-                if (room.ContainsTag("ImperialOrderInvoke") && (bool)room.GetTag("ImperialOrderInvoke"))
+                if (room.ContainsTag("EdictInvoke") && (bool)room.GetTag("EdictInvoke"))
                 {
-                    room.SetTag("ImperialOrderInvoke", false);
+                    room.SetTag("EdictInvoke", false);
                     LogMessage log = new LogMessage
                     {
-                        Type = "#ImperialOrderEffect",
+                        Type = "#EdictEffect",
                         From = player.Name,
-                        Arg = "imperial_order"
+                        Arg = Edict.ClassName
                     };
                     room.SendLog(log);
-                    WrappedCard io = (WrappedCard)room.GetTag("ImperialOrderCard");
+                    WrappedCard io = (WrappedCard)room.GetTag("EdictCard");
                     if (io != null)
                     {
                         FunctionCard fcard = Engine.GetFunctionCard(io.Name);
@@ -217,7 +353,7 @@ namespace SanguoshaServer.Scenario
             }
             else if (change.To == PlayerPhase.Start)
             {
-                if (!player.General1Showed && Engine.GetGeneral(player.ActualGeneral1).IsLord())
+                if (!player.General1Showed && Engine.GetGeneral(player.ActualGeneral1, room.Setting.GameMode).IsLord())
                     room.ShowGeneral(player);
             }
         }
@@ -247,47 +383,66 @@ namespace SanguoshaServer.Scenario
                 WrappedCard card = card_use.Card;
                 if (fcard.HasPreact)
                 {
-                    fcard.DoPreAction(room, card);
+                    fcard.DoPreAction(room, player, card);
                     data = card_use;
                 }
-
-                List<Player> targets = card_use.To;
-                List<CardUseStruct> use_list = room.ContainsTag("card_proceeing") ?
-                    (List<CardUseStruct>)room.GetTag("card_proceeing") : new List<CardUseStruct>();                    //for serval purpose, such as AI
-                use_list.Add(card_use);
-                room.SetTag("card_proceeing", use_list);
+                
+                room.AddUseList(card_use);
+                card_use.EffectCount = new List<CardBasicEffect>();
+                foreach (Player p in card_use.To)
+                    card_use.EffectCount.Add(fcard.FillCardBasicEffct(room, p));
+                data = card_use;
 
                 if (card_use.From != null)
                 {
                     thread.Trigger(TriggerEvent.TargetChoosing, room, card_use.From, ref data);
                     CardUseStruct new_use = (CardUseStruct)data;
-                    targets = new_use.To;
-                }
-
-                if (card_use.From != null && targets.Count > 0)
-                {
-                    List<Player> targets_copy = new List<Player>(targets);
-                    foreach (Player to in targets_copy) {
-                        if (targets.Contains(to))
-                        {
-                            thread.Trigger(TriggerEvent.TargetConfirming, room, to, ref data);
-                            CardUseStruct new_use = (CardUseStruct)data;
-                            targets = new_use.To;
-                            if (targets.Count == 0) break;
-                        }
-                    }
                 }
 
                 card_use = (CardUseStruct)data;
                 if (card_use.From != null && card_use.To.Count > 0)
                 {
-                    thread.Trigger(TriggerEvent.TargetChosen, room, card_use.From, ref data);
-                    foreach (Player p in card_use.To)
-                        thread.Trigger(TriggerEvent.TargetConfirmed, room, p, ref data);
+                    foreach (CardBasicEffect effect in card_use.EffectCount)
+                        effect.Triggered = false;
+
+                    while (card_use.EffectCount.Count > 0)
+                    {
+                        bool check = true;
+                        int count = card_use.EffectCount.Count;
+                        for (int i = 0; i < count; i++)
+                        {
+                            CardBasicEffect effect = card_use.EffectCount[i];
+                            if (!effect.Triggered)
+                            {
+                                check = false;
+                                thread.Trigger(TriggerEvent.TargetConfirming, room, effect.To, ref data);
+                                effect.Triggered = true;
+                                break;
+                            }
+                        }
+
+                        if (check)
+                            break;
+
+                        card_use = (CardUseStruct)data;
+                    }
                 }
+
                 card_use = (CardUseStruct)data;
-                if (card_use.NullifiedList != null)
-                    room.SetTag("CardUseNullifiedList", card_use.NullifiedList);
+                
+                if (card_use.From != null && card_use.To.Count > 0)
+                {
+                    thread.Trigger(TriggerEvent.TargetChosen, room, card_use.From, ref data);                        
+                    for (int i = 0; i < card_use.EffectCount.Count; i++)
+                    {
+                        CardBasicEffect effect = card_use.EffectCount[i];
+                        effect.Triggered = false;
+                        thread.Trigger(TriggerEvent.TargetConfirmed, room, effect.To, ref data);
+                        effect.Triggered = true;
+                    }
+                }
+
+                card_use = (CardUseStruct)data;
                 fcard.Use(room, card_use);
             }
         }
@@ -296,16 +451,19 @@ namespace SanguoshaServer.Scenario
             DyingStruct dying = (DyingStruct)data;
 
             bool askforpeach = true;
-            Client client = room.GetClient(player);
+            Interactivity client = room.GetInteractivity(player);
+            List<Player> controlls = new List<Player> { player };
+            if (client != null)
+                controlls = room.GetPlayers(client.ClientId);
 
-            if (!room.GetPlayers(client).Contains(dying.Who))
+            if (!controlls.Contains(dying.Who))
             {
                 List<Player> players = room.GetAllPlayers();
                 int index = players.IndexOf(player);
                 for (int i = 0; i < index; i++)
                 {
                     Player p = players[i];
-                    if (room.GetPlayers(client).Contains(p))
+                    if (controlls.Contains(p))
                     {
                         askforpeach = false;
                         break;
@@ -320,7 +478,7 @@ namespace SanguoshaServer.Scenario
             {
                 while (dying.Who.Hp <= 0 && dying.Who.Alive)
                 {
-                    CardUseStruct use = room.AskForSinglePeach(player, dying.Who);
+                    CardUseStruct use = room.AskForSinglePeach(player, dying.Who, dying);
                     if (use.Card == null)
                         break;
                     else
@@ -332,46 +490,7 @@ namespace SanguoshaServer.Scenario
         {
             CheckBigKingdoms(room);
         }
-        protected virtual void OnBuryVictim(Room room, Player player, ref object data)
-        {
-            DeathStruct death = (DeathStruct)data;
-            room.BuryPlayer(player);
-
-            if (room.ContainsTag("SkipNormalDeathProcess") && (bool)room.GetTag("SkipNormalDeathProcess"))
-                return;
-
-            Player killer = death.Damage.From ?? null;
-            if (killer != null)
-            {
-                killer.SetMark("multi_kill_count", killer.GetMark("multi_kill_count") + 1);
-                int kill_count = killer.GetMark("multi_kill_count");
-                if (kill_count > 1 && kill_count < 8)
-                    room.SetEmotion(killer, string.Format("multi_kill{0}", kill_count));
-                else if (kill_count > 7)
-                    room.SetEmotion(killer, "zylove");
-                RewardAndPunish(room, killer, player);
-            }
-
-            if (Engine.GetGeneral(player.General1).IsLord() && player == death.Who)
-            {
-                foreach (Player p in room.GetOtherPlayers(player, true)) {
-                    if (p.Kingdom == player.Kingdom)
-                    {
-                        p.Role = "careerist";
-                        if (p.HasShownOneGeneral())
-                        {
-                            room.BroadcastProperty(p, "Role");
-                        }
-                        else
-                        {
-                            room.NotifyProperty(room.GetClient(p), p, "Role");
-                        }
-                    }
-                }
-                CheckBigKingdoms(room);
-            }
-        }
-
+        protected abstract void OnBuryVictim(Room room, Player player, ref object data);
         protected virtual void RewardAndPunish(Room room, Player killer, Player victim)
         {
             if (!killer.Alive || !killer.HasShownOneGeneral())
@@ -402,9 +521,9 @@ namespace SanguoshaServer.Scenario
 
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player target, TriggerStruct trigger_info)
         {
-            if (room.ContainsTag("SkipGameRule") && (bool)room.GetTag("SkipGameRule"))
+            if (room.SkipGameRule)
             {
-                room.RemoveTag("SkipGameRule");
+                room.SkipGameRule = false;
                 return false;
             }
 
@@ -442,49 +561,45 @@ namespace SanguoshaServer.Scenario
                         break;
                 case TriggerEvent.CardFinished:
                     CardUseStruct use = (CardUseStruct)data;
-                    room.ClearCardFlag(use.Card);
+                    //room.ClearCardFlag(use.Card);
+                    use.Card.ClearFlags();                  //RoomCard会在其移动后自动清除flag
+                    room.RemoveSubCards(use.Card);
 
                     //以askforcard形式使用的卡牌没有onUse的trigger，但有finish
                     if (use.Reason != CardUseStruct.CardUseReason.CARD_USE_REASON_RESPONSE)
                     {
-                        List<CardUseStruct> use_list = (List<CardUseStruct>)room.GetTag("card_proceeing");                    //remove when finished
-                        if (use_list.Count > 0) use_list.RemoveAt(use_list.Count - 1);
-                        room.SetTag("card_proceeing", use_list);
-
-                        //room.RemoveTag("targets" + RoomLogic.CardToString(room, use.Card));
+                        room.RemoveUseOnFinish();
                     }
 
-                    if (Engine.GetFunctionCard(use.Card.Name).IsNDTrick())
-                        room.RemoveTag(RoomLogic.CardToString(room, use.Card) + "HegnullificationTargets");
+                    if (Engine.GetFunctionCard(use.Card.Name).IsNDTrick()) room.RemoveHegNullification(use.Card);
 
                     foreach (Client p in room.Clients)
                         room.DoNotify(p, CommandType.S_COMMAND_NULLIFICATION_ASKED, new List<string> { "." });
-                    if (Engine.GetFunctionCard(use.Card.Name) is Slash)
-                        use.From.RemoveTag("Jink_" + RoomLogic.CardToString(room, use.Card));
 
                     break;
                 case TriggerEvent.EventAcquireSkill:
                 case TriggerEvent.EventLoseSkill:
                     InfoStruct info = (InfoStruct)data;
-                        string skill_name = info.Info;
-                        Skill skill = Engine.GetSkill(skill_name);
-                        bool refilter = skill is FilterSkill;
+                    string skill_name = info.Info;
+                    Skill skill = Engine.GetSkill(skill_name);
+                    bool refilter = skill is FilterSkill;
 
-                        if (!refilter && skill is TriggerSkill)
-                        {
-                            TriggerSkill trigger = (TriggerSkill)skill;
+                    if (!refilter && skill is TriggerSkill)
+                    {
+                        TriggerSkill trigger = (TriggerSkill)skill;
                         ViewAsSkill vsskill = trigger.ViewAsSkill;
-                            if (vsskill != null && (vsskill is FilterSkill))
-                                refilter = true;
-                        }
+                        if (vsskill != null && (vsskill is FilterSkill))
+                            refilter = true;
+                    }
 
-                        if (refilter)
-                            room.FilterCards(player, player.GetCards("he"), triggerEvent == TriggerEvent.EventLoseSkill);
+                    if (refilter)
+                        room.FilterCards(player, player.GetCards("he"), triggerEvent == TriggerEvent.EventLoseSkill);
 
-                        break;
+                    CheckBigKingdoms(room);
+                    break;
                 case TriggerEvent.PostHpReduced:
-                        if (player.Hp > 0 || player.HasFlag("Global_Dying")) // newest GameRule -- a player cannot enter dying when it is dying.
-                            break;
+                    if (player.Hp > 0 || player.HasFlag("Global_Dying")) // newest GameRule -- a player cannot enter dying when it is dying.
+                        break;
                     if (data is DamageStruct damage)
                     {
                         room.EnterDying(player, damage);
@@ -508,44 +623,21 @@ namespace SanguoshaServer.Scenario
                     }
                 case TriggerEvent.ConfirmDamage:
                     {
-                        damage = (DamageStruct)data;
-                        if (damage.Card != null && damage.To.GetMark("SlashIsDrank") > 0)
-                        {
-                            LogMessage log = new LogMessage
-                            {
-                                Type = "#AnalepticBuff",
-                                From = damage.From.Name,
-                                To = new List<string> { damage.To.Name },
-                                Arg = damage.Damage.ToString()
-                            };
-
-                            damage.Damage += damage.To.GetMark("SlashIsDrank");
-                            damage.To.SetMark("SlashIsDrank", 0);
-
-                            log.Arg2 = damage.Damage.ToString();
-
-                            room.SendLog(log);
-
-                            data = damage;
-                        }
-
                         break;
                     }
                 case TriggerEvent.DamageDone:
                     {
                         damage = (DamageStruct)data;
-                        if (damage.From != null && !damage.From.Alive)
-                            damage.From = null;
-                        data = damage;
+                        if (damage.From != null && !damage.From.Alive) damage.From = null;
                         room.SendDamageLog(damage);
 
+                        if (damage.Nature != DamageNature.Normal && player.Chained && !damage.Chain && !damage.ChainStarter)
+                            damage.ChainStarter = true;
+
+                        data = damage;
+
                         bool reduce = !room.ApplyDamage(player, damage);
-                        if (damage.Nature != DamageNature.Normal && player.Chained && !damage.Chain)
-                        {
-                            int n = room.ContainsTag("is_chained") ? (int)room.GetTag("is_chained") : 0;
-                            n++;
-                            room.SetTag("is_chained", n);
-                        }
+
                         if (reduce)
                             room.RoomThread.Trigger(TriggerEvent.PostHpReduced, room, player, ref data);
 
@@ -556,47 +648,43 @@ namespace SanguoshaServer.Scenario
                         damage = (DamageStruct)data;
                         if (damage.Prevented)
                             return false;
+                        /*
                         if (damage.Nature != DamageNature.Normal && player.Chained)
                         {
-                            room.ChainedRemoveOnDamageDone(player);
-                            //player.Chained = false;
-                            //room.BroadcastProperty(player, "Chained");
+                            room.ChainedRemoveOnDamageDone(player, damage);
                         }
-                        if (room.ContainsTag("is_chained") && (int)room.GetTag("is_chained") > 0)
+                        */
+                        if (damage.Nature != DamageNature.Normal && !damage.Chain && damage.ChainStarter)      // iron chain effect
                         {
-                            if (damage.Nature != DamageNature.Normal && !damage.Chain)
+                            List<Player> chained_players = new List<Player>();
+                            if (!room.Current.Alive)
+                                chained_players = room.GetOtherPlayers(room.Current);
+                            else
+                                chained_players = room.GetAllPlayers();
+                            chained_players.Remove(damage.To);
+                            foreach (Player chained_player in chained_players)
                             {
-                                // iron chain effect
-                                int n = (int)room.GetTag("is_chained");
-                                n--;
-                                room.SetTag("is_chained", n);
-                                List<Player> chained_players = new List<Player>();
-                                if (!room.Current.Alive)
-                                    chained_players = room.GetOtherPlayers(room.Current);
-                                else
-                                    chained_players = room.GetAllPlayers();
-                                foreach (Player chained_player in chained_players) {
-                                    if (chained_player.Chained)
+                                if (chained_player.Chained)
+                                {
+                                    Thread.Sleep(500);
+                                    LogMessage log = new LogMessage
                                     {
-                                        Thread.Sleep(500);
-                                        LogMessage log = new LogMessage
-                                        {
-                                            Type = "#IronChainDamage",
-                                            From = chained_player.Name
-                                        };
-                                        room.SendLog(log);
+                                        Type = "#IronChainDamage",
+                                        From = chained_player.Name
+                                    };
+                                    room.SendLog(log);
 
-                                        DamageStruct chain_damage = damage;
-                                        chain_damage.To = chained_player;
-                                        chain_damage.Chain = true;
-                                        chain_damage.Transfer = false;
-                                        chain_damage.TransferReason = null;
+                                    DamageStruct chain_damage = damage;
+                                    chain_damage.To = chained_player;
+                                    chain_damage.Chain = true;
+                                    chain_damage.Transfer = false;
+                                    chain_damage.TransferReason = null;
 
-                                        room.Damage(chain_damage);
-                                    }
+                                    room.Damage(chain_damage);
                                 }
                             }
                         }
+
                         foreach (Player p in room.GetAllPlayers()) {
                             if (p.HasFlag("Global_DFDebut"))
                             {
@@ -612,10 +700,10 @@ namespace SanguoshaServer.Scenario
                         {
                             if (Engine.GetFunctionCard(effect.Card.Name) is DelayedTrick)
                             {
-                                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_DELAYTRICK_EFFECT,
+                                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_DELAYTRICK_EFFECT,
                                     effect.To.Name, effect.Card.Skill, effect.Card.Name)
                                 {
-                                    CardString = RoomLogic.CardToString(room, effect.Card)
+                                    Card = effect.Card
                                 };
 
                                 room.MoveCardTo(effect.Card, effect.To, Place.PlaceTable, reason, true);
@@ -629,7 +717,7 @@ namespace SanguoshaServer.Scenario
                         if (data is CardEffectStruct effect)
                         {
                             FunctionCard fcard = Engine.GetFunctionCard(effect.Card.Name);
-                            if (!(fcard is Slash) && effect.Nullified)
+                            if (!(fcard is Slash) && effect.BasicEffect.Nullified)
                             {
                                 LogMessage log = new LogMessage
                                 {
@@ -649,11 +737,8 @@ namespace SanguoshaServer.Scenario
                             object _effect = effect;
                             room.RoomThread.Trigger(TriggerEvent.CardEffectConfirmed, room, effect.To, ref _effect);
 
-                            room.SetTag("Global_CardEffected", _effect);                                         //for AI 
-                            if (effect.To.Alive || fcard.IsKindOf("Slash"))
+                            if (effect.To.Alive || fcard is Slash)
                                 fcard.OnEffect(room, effect);
-
-                            room.RemoveTag("Global_CardEffected");
                         }
 
                         break;
@@ -688,16 +773,18 @@ namespace SanguoshaServer.Scenario
                             break;
                         if (effect.Jink_num == 1)
                         {
-                            CardResponseStruct resp = room.AskForCard(effect.To, "Slash", "jink", "slash-jink:" + slasher, data, HandlingMethod.MethodUse, null, effect.From, false, false);
+                            CardResponseStruct resp = room.AskForCard(effect.To, Slash.ClassName, Jink.ClassName, string.Format("slash-jink:{0}::{1}", slasher, effect.Slash.Name),
+                                data, HandlingMethod.MethodUse, null, effect.From, false, false);
                             room.SlashResult(effect, room.IsJinkEffected(effect.To, resp) ? resp.Card : null);
                         }
                         else
                         {
-                            WrappedCard jink = new WrappedCard("DummyCard");
+                            WrappedCard jink = new WrappedCard(DummyCard.ClassName);
                             for (int i = effect.Jink_num; i > 0; i--)
                             {
-                                string prompt = string.Format("@multi-jink{0}:{1}::{2}" , i == effect.Jink_num ? "-start" : string.Empty, slasher, i);
-                                CardResponseStruct resp = room.AskForCard(effect.To, "Slash", "jink", prompt, data, HandlingMethod.MethodUse, null, effect.From, false, false);
+                                string prompt = string.Format("@multi-jink{0}:{1}::{2}:{3}" , i == effect.Jink_num ? "-start" : string.Empty, slasher, i, effect.Slash.Name);
+                                CardResponseStruct resp = room.AskForCard(effect.To, Slash.ClassName, Jink.ClassName, prompt, data, HandlingMethod.MethodUse, null, effect.From, false, false);
+
                                 if (!room.IsJinkEffected(effect.To, resp))
                                 {
                                     //delete jink;
@@ -717,9 +804,24 @@ namespace SanguoshaServer.Scenario
                 case TriggerEvent.SlashHit:
                     {
                         SlashEffectStruct effect = (SlashEffectStruct)data;
-                        if (effect.Drank > 0) effect.To.SetMark("SlashIsDrank", effect.Drank);
-                        room.Damage(new DamageStruct(effect.Slash, effect.From, effect.To, 1, effect.Nature));
+                        if (effect.Drank > 0)
+                        {
+                            LogMessage log = new LogMessage
+                            {
+                                Type = "#AnalepticBuff",
+                                From = effect.From.Name,
+                                To = new List<string> { effect.To.Name },
+                                Arg = (1 + effect.ExDamage).ToString(),
+                                Arg2 = (1 + effect.ExDamage + effect.Drank).ToString()
+                            };
 
+                            room.SendLog(log);
+                        }
+                        DamageStruct slash_damage = new DamageStruct(effect.Slash, effect.From, effect.To, 1 + effect.ExDamage + effect.Drank, effect.Nature)
+                        {
+                            Drank = effect.Drank > 0
+                        };
+                        room.Damage(slash_damage);
                         break;
                     }
                 case TriggerEvent.BeforeGameOverJudge:
@@ -761,7 +863,7 @@ namespace SanguoshaServer.Scenario
                         room.SendLog(log);
 
                         room.MoveCardTo(judge_struct.Card, null, judge_struct.Who, Place.PlaceJudge,
-                            new CardMoveReason(CardMoveReason.MoveReason.S_REASON_JUDGE, judge_struct.Who.Name, null, null, judge_struct.Reason), true);
+                            new CardMoveReason(MoveReason.S_REASON_JUDGE, judge_struct.Who.Name, null, null, judge_struct.Reason), true);
 
                         Thread.Sleep(500);
                         bool effected = judge_struct.Good == Engine.MatchExpPattern(room, judge_struct.Pattern, judge_struct.Who, judge_struct.Card);
@@ -769,7 +871,7 @@ namespace SanguoshaServer.Scenario
                         data = judge_struct;
                         break;
                     }
-                case TriggerEvent.FinishRetrial:
+                case TriggerEvent.JudgeResult:
                     {
                         JudgeStruct judge = (JudgeStruct)data;
                         LogMessage log = new LogMessage
@@ -795,7 +897,7 @@ namespace SanguoshaServer.Scenario
 
                         if (room.GetCardPlace(judge.Card.Id) == Place.PlaceJudge)
                         {
-                            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_JUDGEDONE, judge.Who.Name, null, judge.Reason);
+                            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_JUDGEDONE, judge.Who.Name, null, judge.Reason);
                             room.MoveCardTo(judge.Card, judge.Who, null, Place.DiscardPile, reason, true);
                         }
 
@@ -852,7 +954,7 @@ namespace SanguoshaServer.Scenario
                             bool should_find_io = false;
                             if (move.To_place == Place.DiscardPile)
                             {
-                                if (move.Reason.Reason != CardMoveReason.MoveReason.S_REASON_USE)
+                                if (move.Reason.Reason != MoveReason.S_REASON_USE)
                                 {
                                     should_find_io = true; // not use
                                 }
@@ -863,7 +965,7 @@ namespace SanguoshaServer.Scenario
                                 else
                                 {
                                     WrappedCard card = room.GetCard(move.Card_ids[0]);
-                                    if (card.Name == "ImperialOrder" && !card.HasFlag("imperial_order_normal_use"))
+                                    if (card.Name == Edict.ClassName && !card.HasFlag("edict_normal_use"))
                                         should_find_io = true; // use card isn't IO
                                 }
                             }
@@ -871,18 +973,18 @@ namespace SanguoshaServer.Scenario
                             {
                                 foreach (int id in move.Card_ids) {
                                     WrappedCard card = room.GetCard(id);
-                                    if (card.Name == "ImperialOrder")
+                                    if (card.Name == Edict.ClassName)
                                     {
                                         room.MoveCardTo(card, null, Place.PlaceTable, true);
-                                        room.AddToPile(room.Players[0], "#imperial_order", card, false);
+                                        room.AddToPile(room.Players[0], "#edict", card, false);
                                         LogMessage log = new LogMessage
                                         {
-                                            Type = "#RemoveImperialOrder",
-                                            Arg = "imperial_order"
+                                            Type = "#RemoveEdict",
+                                            Arg = Edict.ClassName
                                         };
                                         room.SendLog(log);
-                                        room.SetTag("ImperialOrderInvoke", true);
-                                        room.SetTag("ImperialOrderCard", card);
+                                        room.SetTag("EdictInvoke", true);
+                                        room.SetTag("EdictCard", card);
                                         int i = move.Card_ids.IndexOf(id);
                                         move.From_places.RemoveAt(i);
                                         move.Open.RemoveAt(i);
@@ -909,7 +1011,7 @@ namespace SanguoshaServer.Scenario
                             {
                                 foreach (int id in move.Card_ids) {
                                     WrappedCard card = room.GetCard(id);
-                                    if (card.Name == "JadeSeal")
+                                    if (card.Name == JadeSeal.ClassName)
                                     {
                                         CheckBigKingdoms(room);
                                         break;
@@ -921,7 +1023,7 @@ namespace SanguoshaServer.Scenario
                             {
                                 foreach (int id in move.Card_ids) {
                                     WrappedCard card = room.GetCard(id);
-                                    if (card.Name == "JadeSeal")
+                                    if (card.Name == JadeSeal.ClassName)
                                     {
                                         CheckBigKingdoms(room);
                                         break;

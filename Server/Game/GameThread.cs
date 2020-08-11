@@ -1,13 +1,9 @@
-﻿using CommonClass;
-using CommonClass.Game;
+﻿using CommonClass.Game;
 using SanguoshaServer.AI;
+using SanguoshaServer.Extensions;
 using SanguoshaServer.Scenario;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace SanguoshaServer.Game
 {
@@ -19,6 +15,7 @@ namespace SanguoshaServer.Game
         private List<string> skillSet = new List<string>();
         private Dictionary<TriggerEvent, List<TriggerSkill>> skill_table = new Dictionary<TriggerEvent, List<TriggerSkill>>();
         private readonly Player rule_player = new Player();
+        private Dictionary<int, Dictionary<string, int>> trigger_count = new Dictionary<int, Dictionary<string, int>>();
         public RoomThread(Room room, GameRule rule)
         {
             this.room = room;
@@ -26,7 +23,7 @@ namespace SanguoshaServer.Game
             game_rule = rule;
         }
 
-        private void AddTriggerSkill(TriggerSkill skill)
+        public void AddTriggerSkill(TriggerSkill skill)
         {
             if (skill == null || skillSet.Contains(skill.Name))
                 return;
@@ -34,7 +31,8 @@ namespace SanguoshaServer.Game
             skillSet.Add(skill.Name);
 
             List<TriggerEvent> events = skill.TriggerEvents;
-            foreach (TriggerEvent triggerEvent in events) {
+            foreach (TriggerEvent triggerEvent in events)
+            {
                 List <TriggerSkill> table = skill_table.ContainsKey(triggerEvent) ? skill_table[triggerEvent] : new List<TriggerSkill>();
                 table.Add(skill);
                 table.Sort((x, y) => CompareByPriority(triggerEvent, x, y));
@@ -62,44 +60,55 @@ namespace SanguoshaServer.Game
         public void Start()
         {
             AddTriggerSkill(game_rule);
+            foreach (Skill skill in room.Scenario.Skills)
+                if (skill is TriggerSkill tri)
+                    AddTriggerSkill(tri);
 
             foreach (TriggerSkill skill in Engine.GetGlobalTriggerSkills())
                 AddTriggerSkill(skill);
             foreach (TriggerSkill skill in Engine.GetPublicTriggerSkills())
                 AddTriggerSkill(skill);
-            foreach (TriggerSkill skill in Engine.GetEquipTriggerSkills(room.Setting.CardPackage))
+            foreach (TriggerSkill skill in Engine.GetEquipTriggerSkills())
                 AddTriggerSkill(skill);
 
             string winner = game_rule.GetWinner(room);
             if (!string.IsNullOrEmpty(winner))
                 room.GameOver(winner);
-
-            //try
-            //{
+#if !DEBUG
+            try
+            {
+#endif
                 Trigger(TriggerEvent.GameStart, room, null);
                 ConstructTriggerTable();
-                // delay(3000);
-                //actionNormal(game_rule);
                 ActionNormal();
-            //}
-            //catch (Exception e)
-            //{
-            //    room.OutPut(e.Message);
-            //}
+#if !DEBUG
+            }
+            catch (Exception e)
+            {
+                if (!(e is System.Threading.ThreadAbortException))
+                {
+                    LogHelper.WriteLog(null, e);
+                    room.Debug(string.Format("{0} : {1} {2}", e.Message, e.TargetSite, e.Source));
+                }
+            }
+
+            if (!room.RoomTerminated)
+                room.GameOver(".");
+#endif
         }
 
         protected virtual void ActionNormal()//(GameRule* game_rule)
         {
             Player starter = room.Current;
-            bool new_round = false;
+            bool new_round = true;
             while (true)
             {
-                room.BeforeTurnStart(new_round);
+                room.BeforeRoundStart(new_round);
                 new_round = false;
 
                 object data = room.Round;
                 Trigger(TriggerEvent.TurnStart, room, room.Current, ref data);
-                if (room.Finished) break;
+                if (room.Finished || !string.IsNullOrEmpty(room.PreWinner)) break;
 
                 Player regular_next = room.Current;
                 while (regular_next == room.Current || !regular_next.Alive)
@@ -109,22 +118,36 @@ namespace SanguoshaServer.Game
                         new_round = true;
                 }
 
-                while (room.ContainsTag("ExtraTurnList") && room.GetTag("ExtraTurnList") is List<Player> extraTurnList)
+                Player next = room.GetExtraTurn();
+                while (next != null)
                 {
-                    if (extraTurnList.Count > 0)
-                    {
-                        Player next = extraTurnList[0];
-                        extraTurnList.RemoveAt(0);
-                        room.SetTag("ExtraTurnList", extraTurnList);
-                        room.SetCurrent(next);
-                        Trigger(TriggerEvent.TurnStart, room, next, ref data);
-                        if (room.Finished) break;
-                    }
-                    else
-                        room.RemoveTag("ExtraTurnList");
+                    room.SetCurrent(next);
+                    Trigger(TriggerEvent.TurnStart, room, next, ref data);
+                    if (room.Finished || !string.IsNullOrEmpty(room.PreWinner)) break;
+
+                    next = room.GetExtraTurn();
                 }
-                if (room.Finished) break;
+                if (room.Finished || !string.IsNullOrEmpty(room.PreWinner)) break;
                 room.SetCurrent(regular_next);
+            }
+
+            if (!string.IsNullOrEmpty(room.PreWinner))
+            {
+                Player surrend = null;
+                foreach (Player p in room.GetAlivePlayers())
+                {
+                    if (!room.PreWinner.Contains(p.Name))
+                    {
+                        surrend = p;
+                        break;
+                    }
+                }
+                if (surrend != null)
+                {
+                    room.DoBroadcastNotify(CommonClassLibrary.CommandType.S_COMMAND_SURRENDER, new List<string> { surrend.Name });
+                    System.Threading.Thread.Sleep(3000);
+                }
+                room.GameOver(room.PreWinner);
             }
         }
 
@@ -132,23 +155,25 @@ namespace SanguoshaServer.Game
         public bool Trigger(TriggerEvent triggerEvent, Room room, Player target, ref object data)
         {
             // push it to event stack
+            if (!string.IsNullOrEmpty(room.PreWinner)) return true;
 
             _m_trigger_id++;
             int trigger_id = _m_trigger_id;
+            trigger_count.Add(trigger_id, new Dictionary<string, int>());
 
             bool broken = false;
             List <TriggerSkill> will_trigger = new List<TriggerSkill>();
             List<TriggerSkill> triggerable_tested = new List<TriggerSkill>();
             List<TriggerSkill> rules = new List<TriggerSkill>(); // we can't get a GameRule with Engine::getTriggerSkill() :(
             Dictionary<Player, List<TriggerStruct>> trigger_who = new Dictionary<Player, List<TriggerStruct>>();
-
             List<TriggerSkill> triggered = new List<TriggerSkill>();
-            List<TriggerSkill> skills = skill_table.ContainsKey(triggerEvent) ? skill_table[triggerEvent] : new List<TriggerSkill>();
-            skills.Sort((x, y) => CompareByPriority(triggerEvent, x, y));
+            Dictionary<Player, List<TriggerStruct>> already_triggered = new Dictionary<Player, List<TriggerStruct>>();
             do
             {
+                List<TriggerSkill> skills  = skill_table.ContainsKey(triggerEvent) ? new List<TriggerSkill>(skill_table[triggerEvent]) : new List<TriggerSkill>();
                 trigger_who.Clear();
-                foreach (TriggerSkill skill in skills) {
+                foreach (TriggerSkill skill in skills)
+                {
                     if (!triggered.Contains(skill))
                     {
                         if (skill is GameRule)
@@ -205,11 +230,13 @@ namespace SanguoshaServer.Game
                 if (will_trigger.Count > 0)
                 {
                     will_trigger.Clear();
-                    foreach (Player p in room.GetAllPlayers(true)) {
+                    foreach (Player p in room.GetAllPlayers(true))
+                    {
                         if (!trigger_who.ContainsKey(p)) continue;
-                        List<TriggerStruct> already_triggered = new List<TriggerStruct>();
+                        //List<TriggerStruct> already_triggered = new List<TriggerStruct>();
                         Dictionary<Player, List<TriggerStruct>> refuse = new Dictionary<Player, List<TriggerStruct>>();
-                        while (true) {
+                        while (true)
+                        {
                             List<TriggerStruct> who_skills = trigger_who.ContainsKey(p) ? new List<TriggerStruct>(trigger_who[p]) : new List<TriggerStruct>();
                             if (who_skills.Count == 0) break;
                             TriggerStruct name = new TriggerStruct();
@@ -238,8 +265,9 @@ namespace SanguoshaServer.Game
                                 else if (p != null)
                                 {
                                     string reason = "GameRule:TriggerOrder";
-                                    foreach (TriggerStruct skill in who_skills) {
-                                        if (skill.SkillName.Contains("GameRule_AskForGeneralShow"))
+                                    foreach (TriggerStruct skill in who_skills)
+                                    {
+                                        if (triggerEvent == TriggerEvent.EventPhaseStart && skill.SkillName.Contains("GameRule_AskForGeneralShow"))
                                         {
                                             reason = "GameRule:TurnStart";
                                             break;
@@ -264,27 +292,39 @@ namespace SanguoshaServer.Game
                             }
 
                             if (name.Targets.Count > 0)
-                            {                         //merge the same
+                            {
                                 bool deplicated = false;
-                                foreach (TriggerStruct already_s in already_triggered) {
+                                List<TriggerStruct> already = already_triggered.ContainsKey(p) ? new List<TriggerStruct>(already_triggered[p]) : new List<TriggerStruct>();
+                                foreach (TriggerStruct already_s in already)                            //类似铁骑对多目标发动的触发技
+                                {                                                                       //若先选择了对后位角色发动，则直接跳过前位的其他角色
                                     if (already_s.Equals(name) && already_s.Targets.Count > 0)
                                     {
                                         Player triggered_target = room.FindPlayer(already_s.ResultTarget, true);
                                         Player _target = room.FindPlayer(name.ResultTarget, true);
-                                        List<Player> all = room.GetAllPlayers(true);    
+                                        List<Player> all = room.GetAllPlayers(true);
                                         if (all.IndexOf(_target) > all.IndexOf(triggered_target))
                                         {
-                                            already_triggered[already_triggered.IndexOf(already_s)] = name;
+                                            already_triggered[p][already.IndexOf(already_s)] = name;
                                             deplicated = true;
                                             break;
                                         }
                                     }
                                 }
                                 if (!deplicated)
-                                    already_triggered.Add(name);
+                                {
+                                    if (already_triggered.ContainsKey(p))
+                                        already_triggered[p].Add(name);
+                                    else
+                                        already_triggered[p] = new List<TriggerStruct> { name };
+                                }
                             }
                             else
-                                already_triggered.Add(name);
+                            {
+                                if (already_triggered.ContainsKey(p))
+                                    already_triggered[p].Add(name);
+                                else
+                                    already_triggered[p] = new List<TriggerStruct> { name };
+                            }
 
                             //----------------------------------------------- TriggerSkill::cost
                             bool do_effect = false;
@@ -292,14 +332,19 @@ namespace SanguoshaServer.Game
                             if (p != null && !RoomLogic.PlayerHasShownSkill(room, p, result_skill))
                                 p.SetFlags("Global_askForSkillCost");           // SkillCost need protect
 
-                            TriggerStruct cost_str = result_skill.Cost(triggerEvent, room, skill_target, ref data, p, name);
+                            string mark = string.Format("{0}_{1}_{2}", name.SkillName, p.Name, skill_target != null ? skill_target.Name : "null");
+                            if (!trigger_count[trigger_id].ContainsKey(mark))
+                                trigger_count[trigger_id][mark] = 1;
+                            else
+                                trigger_count[trigger_id][mark]++;
+                            TriggerStruct cost = name;
+                            cost.Times = trigger_count[trigger_id][mark];
+
+                            TriggerStruct cost_str = result_skill.Cost(triggerEvent, room, skill_target, ref data, p, cost);
                             result_skill = Engine.GetTriggerSkill(cost_str.SkillName);
 
                             if (result_skill != null)
                             {
-                                if (result_skill.Name.EndsWith("_h") && p != null)
-                                    p.SetFlags(string.Format("huashen_{0}", trigger_id));  // huashen skill invoked
-
                                 do_effect = true;
                                 if (p != null)
                                 {
@@ -322,6 +367,8 @@ namespace SanguoshaServer.Game
                                 broken = result_skill.Effect(triggerEvent, room, skill_target, ref data, invoker, cost_str);
                                 if (broken)
                                 {
+                                    //if (room.Setting.GameMode == "Hegemony")
+                                    //    room.Debug(string.Format("{0}-{1}", triggerEvent, result_skill.Name));
                                     p.RemoveTag("JustShownSkill");
                                     break;
                                 }
@@ -337,7 +384,8 @@ namespace SanguoshaServer.Game
                             p.RemoveTag("JustShownSkill");
 
                             trigger_who.Clear();
-                            foreach (TriggerSkill skill in triggered) {
+                            foreach (TriggerSkill skill in triggered)
+                            {
                                 if (skill is GameRule)
                                 {
                                     //room->tryPause();
@@ -349,10 +397,12 @@ namespace SanguoshaServer.Game
                                     if (skill.GetDynamicPriority(triggerEvent) == triggered[0].GetDynamicPriority(triggerEvent))
                                     {
                                         List<TriggerStruct> triggerSkillList = skill.Triggerable(triggerEvent, room, target, ref data);
-                                        foreach (Player _p in room.Players) {
-                                            foreach (TriggerStruct _skill in triggerSkillList) {
-                                                if (_p.Name != _skill.Invoker || (_skill.SkillName.EndsWith("_h") && p.HasFlag(string.Format("huashen_{0}", trigger_id))))
-                                                    continue;                   // huashen skill just trigger once at the same trigger id
+                                        foreach (Player _p in room.Players)
+                                        {
+                                            foreach (TriggerStruct _skill in triggerSkillList)
+                                            {
+                                                if (_p.Name != _skill.Invoker)
+                                                    continue;
 
                                                 bool refuse_before = false;
                                                 if (refuse.ContainsKey(_p))
@@ -385,31 +435,24 @@ namespace SanguoshaServer.Game
                                         break;
                                 }
                             }
-                            foreach (TriggerStruct already_s in already_triggered) {
+
+                            foreach (TriggerStruct already_s in already_triggered[p])
+                            {
                                 List<TriggerStruct> who_skills_q = trigger_who.ContainsKey(p) ? new List<TriggerStruct>(trigger_who[p]) : new List<TriggerStruct>();
-                                foreach (TriggerStruct re_skill in who_skills_q) {
-                                    if (already_s.Equals(re_skill))
-                                    {
-                                        if (already_s.Targets.Count > 0 && re_skill.Targets.Count > 0)
+                                foreach (TriggerStruct re_skill in who_skills_q)
+                                {
+                                    if (already_s.Equals(re_skill))         //类似铁骑、烈弓多目标的触发技
+                                    {                                       //筛选剩余未发动的目标
+                                        if (already_s.Targets.Count > 0 && re_skill.Targets.Count > 0 && re_skill.Targets.Contains(already_s.ResultTarget))
                                         {
-                                            List<string> targets = new List<string>();
-                                            Player already_target = room.FindPlayer(already_s.ResultTarget, true);
-                                            Player _target = room.FindPlayer(re_skill.Targets[0], true);
-                                            List<Player> all = room.GetAllPlayers(true);
-                                            if (all.IndexOf(already_target) < all.IndexOf(_target))
-                                                continue;
+                                            List<string> targets = new List<string>(re_skill.Targets);
+                                            for (int i = 0; i <= targets.IndexOf(already_s.ResultTarget); i++)
+                                                re_skill.Targets.Remove(targets[i]);
 
-                                            for (int i = 1 + all.IndexOf(already_target); i < room.GetAllPlayers(true).Count; i++)
+                                            if (re_skill.Targets.Count > 0)
                                             {
-                                                string new_target = room.GetAllPlayers(true)[i].Name;
-                                                if (re_skill.Targets.Contains(new_target))
-                                                    targets.Add(new_target);
-                                            }
-
-                                            if (targets.Count > 0)
-                                            {
-                                                TriggerStruct re_skill2 = already_s.Copy();
-                                                re_skill2.Targets = targets;
+                                                TriggerStruct re_skill2 = already_s;
+                                                re_skill2.Targets = re_skill.Targets;
                                                 re_skill2.ResultTarget = null;
                                                 trigger_who[p][trigger_who[p].IndexOf(re_skill)] = re_skill2;
                                                 break;
@@ -423,35 +466,39 @@ namespace SanguoshaServer.Game
                         }
                         if (broken) break;
                     }
-                    // @todo_Slob: for drawing cards when game starts -- stupid design of triggering no player!
-                    if (!broken)
-                    {
-                        if (trigger_who.ContainsKey(rule_player) && trigger_who[rule_player].Count > 0)
-                        {
-                            foreach (TriggerStruct s in trigger_who[rule_player]) {
-                                TriggerSkill skill = null;
-                                foreach (TriggerSkill rule in rules) { // because we cannot get a GameRule with Engine::getTriggerSkill()
-                                    if (rule.Name == s.SkillName)
-                                    {
-                                        skill = rule;
-                                        break;
-                                    }
-                                }
-                                
-                                TriggerStruct skill_cost = skill.Cost(triggerEvent, room, target, ref data, null, s);
-                                if (!string.IsNullOrEmpty(skill_cost.SkillName))
-                                {
-                                    broken = skill.Effect(triggerEvent, room, target, ref data, null, skill_cost);
-                                    if (broken)
-                                        break;
-                                }
-                            }
-                        }
-                    }
                 }
                 if (broken)
                     break;
-            } while (skills.Count != triggerable_tested.Count);
+
+            } while (skill_table.ContainsKey(triggerEvent) && skill_table[triggerEvent].Count != triggerable_tested.Count && string.IsNullOrEmpty(room.PreWinner));
+
+            // @todo_Slob: for drawing cards when game starts -- stupid design of triggering no player!
+            if (!broken && trigger_who.ContainsKey(rule_player) && trigger_who[rule_player].Count > 0)
+            {
+                List<TriggerStruct> triggers = new List<TriggerStruct>(trigger_who[rule_player]);
+                foreach (TriggerStruct s in triggers)
+                {
+                    if (!string.IsNullOrEmpty(room.PreWinner)) break;
+
+                    TriggerSkill skill = null;
+                    foreach (TriggerSkill rule in rules)
+                    {                      // because we cannot get a GameRule with Engine::getTriggerSkill()
+                        if (rule.Name == s.SkillName)
+                        {
+                            skill = rule;
+                            break;
+                        }
+                    }
+
+                    TriggerStruct skill_cost = skill.Cost(triggerEvent, room, target, ref data, null, s);
+                    if (!string.IsNullOrEmpty(skill_cost.SkillName))
+                    {
+                        broken = skill.Effect(triggerEvent, room, target, ref data, null, skill_cost);
+                        if (broken)
+                            break;
+                    }
+                }
+            }
 
             foreach (TrustedAI ai in room.AIs)
                 ai.Event(triggerEvent, target, data);
@@ -465,6 +512,7 @@ namespace SanguoshaServer.Game
             //event_stack.pop_back();
 
             //room->tryPause();
+            trigger_count.Remove(trigger_id);
             return broken;
         }
 

@@ -4,6 +4,7 @@ using System.Data;
 using CommonClass;
 using CommonClass.Game;
 using CommonClassLibrary;
+using SanguoshaServer.Package;
 
 namespace SanguoshaServer.Game
 {
@@ -35,6 +36,11 @@ namespace SanguoshaServer.Game
         {
             DataRow row = Engine.GetLines(id);
             return row["greeting"].ToString();
+        }
+
+        public static void SayHellow(Room room, Client bot)
+        {
+            room.Speak(bot, GetGreeting(bot.Profile.NickName));
         }
 
         public static void OnSkillShow(Room room, Player player, string skill)
@@ -104,6 +110,15 @@ namespace SanguoshaServer.Game
             }
         }
 
+        //等待游戏开始时的聊天
+        public static void IdleTalk(Room room, Client client)
+        {
+            DataRow row = Engine.GetLines(client.Profile.NickName);
+            string message = row["idle_talk"].ToString();
+            if (!string.IsNullOrEmpty(message))
+                room.Speak(client, message);
+        }
+
         public static void BotChat(TriggerEvent triggerEvent, Room room, Player player, object data)
         {
             if (triggerEvent == TriggerEvent.EventPhaseStart && player.Phase == Player.PlayerPhase.Play)
@@ -134,13 +149,17 @@ namespace SanguoshaServer.Game
             {
                 OnTargeted(room, player, data);
             }
+            else if (triggerEvent == TriggerEvent.TurnStart && player != null && player.Alive)
+            {
+                ChangeSkin(room, player, 10);
+            }
         }
 
         private static void OnTargeted(Room room, Player player, object data)
         {
             if (data is CardUseStruct use)
             {
-                if (use.Card.Name.Contains("Slash") && use.To.Count > 0 && room.Setting.GameMode == "Hegemony")
+                if (use.Card.Name.Contains(Slash.ClassName) && use.To.Count > 0 && room.Setting.GameMode == "Hegemony")
                 {
                     List<Client> ais = new List<Client>();
                     foreach (Player p in use.To)
@@ -186,7 +205,7 @@ namespace SanguoshaServer.Game
         {
             if (data is CardUseStruct use)
             {
-                if (use.Card.Name == "Analeptic"
+                if (use.Card.Name == Analeptic.ClassName
                     && (use.Reason == CardUseStruct.CardUseReason.CARD_USE_REASON_PLAY || room.GetRoomState().GetCurrentCardUsePattern(player) == "@@rende")
                     && use.Card.Skill != "_zhendu")
                 {
@@ -227,7 +246,7 @@ namespace SanguoshaServer.Game
                         }
                     }
                 }
-                else if (player.ClientId < 0 && use.Card.Name.Contains("Slash")
+                else if (player.ClientId < 0 && use.Card.Name.Contains(Slash.ClassName)
                     && (use.Reason == CardUseStruct.CardUseReason.CARD_USE_REASON_PLAY || room.GetRoomState().GetCurrentCardUsePattern(player) == "@@rende")
                     && use.To.Count == 1 && !RoomLogic.IsFriendWith(room, player, use.To[0]) && Shuffle.random(1, 3))
                 {
@@ -266,7 +285,7 @@ namespace SanguoshaServer.Game
             if (player.ClientId < 0 && data is JudgeStruct judge)
             {
                 Client client = room.GetClient(player);
-                if (judge.Reason == "Lightning")
+                if (judge.Reason == Lightning.ClassName)
                 {
                     bool suc = RoomLogic.GetCardSuit(room, judge.Card) == WrappedCard.CardSuit.Spade
                         && RoomLogic.GetCardNumber(room, judge.Card) > 1 && RoomLogic.GetCardNumber(room, judge.Card) < 10;
@@ -296,7 +315,7 @@ namespace SanguoshaServer.Game
                         }
                     }
                 }
-                else if (judge.Reason == "Indulgence" && Shuffle.random(1, 3))
+                else if (judge.Reason == Indulgence.ClassName && Shuffle.random(1, 3))
                 {
                     bool suc = RoomLogic.GetCardSuit(room, judge.Card) != WrappedCard.CardSuit.Heart;
                     bool speak = Shuffle.random(1, 2);
@@ -343,10 +362,18 @@ namespace SanguoshaServer.Game
                     if (speak)
                     {
                         string message = row["death1"].ToString();
-                        if (!string.IsNullOrEmpty(message) && (!message.Contains("%1") || death.Damage.From != null))
+                        if (!string.IsNullOrEmpty(message))
                         {
-                            message = message.Replace("%1", death.Damage.From.SceenName);
-                            room.Speak(client, message);
+                            if (message.Contains("%1"))
+                            {
+                                if (death.Damage.From != null)
+                                    message = message.Replace("%1", death.Damage.From.SceenName);
+                                else
+                                    message = string.Empty;
+                            }
+
+                            if (!string.IsNullOrEmpty(message))
+                                room.Speak(client, message);
                         }
                     }
                     else
@@ -411,11 +438,18 @@ namespace SanguoshaServer.Game
                     if (speak)
                     {
                         string message = row["damaged1"].ToString();
-                        if (!string.IsNullOrEmpty(message) && (!message.Contains("%1") || damage.From != null))
+                        if (!string.IsNullOrEmpty(message))
                         {
-                            message = message.Replace("%1", damage.From.SceenName);
+                            if (message.Contains("%1"))
+                            {
+                                if (damage.From != null)
+                                    message = message.Replace("%1", damage.From.SceenName);
+                                else
+                                    message = string.Empty;
+                            }
+                            if (!string.IsNullOrEmpty(message))
+                                room.Speak(client, message);
                         }
-                        room.Speak(client, message);
                     }
                     else
                     {
@@ -432,30 +466,44 @@ namespace SanguoshaServer.Game
 
         private static void OnGameStart(Room room, Player player)
         {
-            //机器人换皮肤
-            if (player != null && player.ClientId < 0 && Shuffle.random(1, 3))
-            {
-                DataRow[] data1 = Engine.GetGeneralSkin(player.ActualGeneral1, room.Setting.GameMode);
+            ChangeSkin(room, player, 3);
+        }
 
-                bool head = data1.Length > 0 && (string.IsNullOrEmpty(player.ActualGeneral2) || Shuffle.random(1, 2));
+        private static void ChangeSkin(Room room, Player player, int rate)
+        {
+            //机器人换皮肤
+            if (player != null && player.ClientId < 0 && Shuffle.random(1, rate))
+            {
+                List<DataRow> data1 = Engine.GetGeneralSkin(player.ActualGeneral1, room.Setting.GameMode);
+
+                bool head = data1.Count > 1 && (string.IsNullOrEmpty(player.ActualGeneral2) || Shuffle.random(1, 2));
                 if (head)
                 {
                     string name = player.ActualGeneral1;
                     Random ra = new Random();
-                    int result = ra.Next(1, data1.Length);
-                    player.HeadSkinId = result;
-                    if (player.General1Showed)
-                        room.BroadcastProperty(player, "HeadSkinId");
+                    int result = ra.Next(0, data1.Count);
+                    if (result != player.HeadSkinId)
+                    {
+                        player.HeadSkinId = result;
+                        if (player.General1Showed)
+                            room.BroadcastProperty(player, "HeadSkinId");
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(player.ActualGeneral2) && (!head || Shuffle.random(1, 2)))
                 {
-                    DataRow[] data2 = Engine.GetGeneralSkin(player.ActualGeneral2, room.Setting.GameMode);
-                    Random ra = new Random();
-                    int result = ra.Next(0, data2.Length);
-                    player.DeputySkinId = result;
-                    if (player.General2Showed)
-                        room.BroadcastProperty(player, "DeputySkinId");
+                    List<DataRow> data2 = Engine.GetGeneralSkin(player.ActualGeneral2, room.Setting.GameMode);
+                    if (data2.Count > 1)
+                    {
+                        Random ra = new Random();
+                        int result = ra.Next(0, data2.Count);
+                        if (result != player.DeputySkinId)
+                        {
+                            player.DeputySkinId = result;
+                            if (player.General2Showed)
+                                room.BroadcastProperty(player, "DeputySkinId");
+                        }
+                    }
                 }
             }
         }

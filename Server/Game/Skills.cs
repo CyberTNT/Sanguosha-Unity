@@ -1,14 +1,12 @@
 ﻿using CommonClass.Game;
-using SanguoshaServer.Game;
+using SanguoshaServer.Package;
 using SanguoshaServer.Scenario;
-using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using static CommonClass.Game.CardUseStruct;
 using static SanguoshaServer.Game.BattleArraySkill;
-using static SanguoshaServer.Game.FunctionCard;
+using static SanguoshaServer.Package.FunctionCard;
 
 namespace SanguoshaServer.Game
 {
@@ -17,6 +15,7 @@ namespace SanguoshaServer.Game
         NonTrigger,
 
         GameStart,
+        RoundStart,
         TurnStart,
         EventPhaseStart,
         EventPhaseProceeding,
@@ -26,10 +25,13 @@ namespace SanguoshaServer.Game
 
         AfterDrawNCards,
         DrawPileChanged,
+        CardDrawing,
+        SwapPile,
 
         PreHpRecover,
         HpRecover,
         PreHpLost,
+        HpChanging,
         HpChanged,
         MaxHpChanged,
         PostHpReduced,
@@ -38,15 +40,18 @@ namespace SanguoshaServer.Game
         EventLoseSkill,
         EventAcquireSkill,
 
-        StartJudge,             //#20
+        StartJudge,
         AskForRetrial,
         FinishRetrial,
+        JudgeResult,
         FinishJudge,
 
+        PindianCard,
         PindianVerifying,
         Pindian,
 
         TurnedOver,
+        ChainStateCanceling,
         ChainStateChanged,
         RemoveStateChanged,
 
@@ -54,7 +59,8 @@ namespace SanguoshaServer.Game
         Predamage,        // trigger the certain skill -- jueqing
         DamageForseen,    // the first event in a damage -- kuangfeng dawu
         DamageCaused,     // the moment for -- qianxi..
-        DamageInflicted,  // the moment for -- tianxiang..
+        DamageInflicted,  // the moment for most of add damamge skills -- tianxiang..
+        DamageDefined,   // the moment for reduce or prevent damage  -- kuanshi..
         PreDamageDone,    // before reducing Hp
         DamageDone,       // it's time to do the damage
         Damage,           // the moment for -- lieren..
@@ -62,7 +68,7 @@ namespace SanguoshaServer.Game
         DamageComplete,   // the moment for trigger iron chain
 
         Dying,
-        QuitDying,              //#40
+        QuitDying,
         AskForPeaches,
         AskForPeachesDone,
         Death,
@@ -88,7 +94,7 @@ namespace SanguoshaServer.Game
         PreCardUsed,
         CardUsedAnnounced,   //Fan lihuo change slash
         CardTargetAnnounced,     //Halberd duanbing extra target
-        CardUsed,               //#61
+        CardUsed,
         TargetChoosing, //distinguish "choose target" and "confirm target"
         TargetConfirming,
         TargetChosen,
@@ -111,7 +117,7 @@ namespace SanguoshaServer.Game
 
         DFDebut, // for Dragon Phoenix Debut
 
-        NumOfEvents
+        NumOfEvents,
     };
 
     public abstract class Skill
@@ -123,7 +129,6 @@ namespace SanguoshaServer.Game
             Compulsory,
             Limited,
             Wake,
-            Turn
         };
 
         public enum SkillType
@@ -145,24 +150,20 @@ namespace SanguoshaServer.Game
         protected bool attached_lord_skill;
         protected bool lord_skill;
         protected SkillType skill_type;
+        protected bool turn = false;
 
         public string Name => name;
-
         public Frequency SkillFrequency => frequency;
         public string LimitMark => limit_mark;
         public string Relate_to_place => relate_to_place;
         public bool Attached_lord_skill => attached_lord_skill;
         public SkillType Skill_type => skill_type;
         public bool LordSkill => lord_skill;
-
-        public bool Visible
+        public bool Visible => !name.StartsWith("#");
+        public bool Turn => turn;
+        public virtual void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
         {
-            get { return !Name.StartsWith("#"); }
-        }
-
-        public virtual int GetEffectIndex(Room room, Player player, WrappedCard card)
-        {
-            return -1;
+            index = -1;
         }
 
         public virtual bool CanPreShow()
@@ -180,6 +181,7 @@ namespace SanguoshaServer.Game
             this.name = name;
         }
         public virtual bool MoveFilter(Room room, int id, List<int> downs) => true;
+        public virtual bool SortFilter(Room room, List<int> to_sorts, List<int> ups, List<int> downs) => false;
     }
 
     public class TriggerSkill : Skill
@@ -237,7 +239,7 @@ namespace SanguoshaServer.Game
         public virtual List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             List<TriggerStruct> skill_lists = new List<TriggerStruct>();
-            if (Name == "game_rule") return skill_lists;
+            if (Name == "gamerule") return skill_lists;
 
             TriggerStruct skill_list = Triggerable(triggerEvent, room, player, ref data, null);
             if (!string.IsNullOrEmpty(skill_list.SkillName))
@@ -328,6 +330,7 @@ namespace SanguoshaServer.Game
             }
             return new TriggerStruct();
         }
+        /*
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct inf)
         {
             if (RoomLogic.PlayerHasSkill(room, player, skill_name) && player.Alive && data is InfoStruct info)
@@ -342,6 +345,7 @@ namespace SanguoshaServer.Game
             }
             return inf;
         }
+        */
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
             if (!string.IsNullOrEmpty(pile_name))
@@ -362,7 +366,7 @@ namespace SanguoshaServer.Game
         public override bool Triggerable(Player target, Room room)
         {
             if (target == null) return false;
-            return target.HasWeapon(Name);
+            return target.Alive && target.HasWeapon(Name);
         }
     }
 
@@ -458,7 +462,8 @@ namespace SanguoshaServer.Game
 
         public TreasureSkill(string name) : base(name) { }
 
-        public override int GetPriority() => 2; public override bool Triggerable(Player target, Room room)
+        public override int GetPriority() => 2;
+        public override bool Triggerable(Player target, Room room)
         {
             if (target == null) return false;
             return target.HasTreasure(Name);
@@ -509,7 +514,7 @@ namespace SanguoshaServer.Game
 
             if (!RoomLogic.PlayerHasSkill(room, invoker, Name) && !huashen) return false;
 
-            if (reason == CardUseReason.CARD_USE_REASON_RESPONSE_USE && pattern == "Nullification")
+            if (reason == CardUseReason.CARD_USE_REASON_RESPONSE_USE && pattern == Nullification.ClassName)
                 return IsEnabledAtNullification(room, invoker);
 
             switch (reason)
@@ -560,36 +565,33 @@ namespace SanguoshaServer.Game
         public static List<string> GetGuhuoCards(Room room, string type)
         {
             List<string> all = new List<string>();
-            List<int> cards = room.RoomCards;
             if (type.Contains("b"))
             {
-                foreach (int id in cards) {
-                    FunctionCard card = Engine.GetFunctionCard(Engine.GetRealCard(id).Name);
-                    if (card is BasicCard && !all.Contains(card.Name))
+                foreach (FunctionCard fcard in room.AvailableFunctionCards)
+                {
+                    if (fcard is BasicCard && !all.Contains(fcard.Name))
                     {
-                        all.Add(card.Name);
+                        all.Add(fcard.Name);
                     }
                 }
             }
 
             if (type.Contains("t"))
             {
-                foreach (int id in cards)
+                foreach (FunctionCard fcard in room.AvailableFunctionCards)
                 {
-                    FunctionCard card = Engine.GetFunctionCard(Engine.GetRealCard(id).Name);
-                    if (card?.IsNDTrick() == true  && !all.Contains(card.Name))
+                    if (fcard.IsNDTrick() && !all.Contains(fcard.Name))
                     {
-                        all.Add(card.Name);
+                        all.Add(fcard.Name);
                     }
                 }
             }
 
             if (type.Contains("d"))
             {
-                foreach (int id in cards)
+                foreach (FunctionCard card in room.AvailableFunctionCards)
                 {
-                    FunctionCard card = Engine.GetFunctionCard(Engine.GetRealCard(id).Name);
-                    if (card?.IsNDTrick() == false && card?.IsKindOf("TrickCard") == true && !all.Contains(card.Name))
+                    if (!card.IsNDTrick() && card is TrickCard && !all.Contains(card.Name))
                     {
                         all.Add(card.Name);
                     }
@@ -609,12 +611,15 @@ namespace SanguoshaServer.Game
         public bool Global => global;
         public List<string> Skills => viewhas_skills;
         public List<string> Armors => viewhas_armors;
+        public List<string> Treasures => viewhas_treasure;
 
         protected bool global;
         protected List<string> viewhas_skills = new List<string>();
         protected List<string> viewhas_armors = new List<string>();
+        protected List<string> viewhas_treasure = new List<string>();
         public ViewHasSkill(string name) : base(name)
         {
+            frequency = Frequency.Compulsory;
         }
 
         public abstract bool ViewHas(Room room, Player player, string skill_name);
@@ -685,14 +690,14 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, Player player)
         {
-            WrappedCard card = new WrappedCard("ShowGeneralCard")
+            WrappedCard card = new WrappedCard(ShowGeneralCard.ClassName)
             {
                 UserString = Name
             };
             return card;
         }
         public abstract bool ViewFilter(Room room, WrappedCard to_select, Player player);
-        public abstract void ViewAs(Room room, ref WrappedCard card, Player player);
+        public abstract void ViewAs(Room room, ref RoomCard card, Player player);
     }
     public abstract class ZeroCardViewAsSkill : ViewAsSkill
     {
@@ -713,14 +718,13 @@ namespace SanguoshaServer.Game
         private WrappedCard card;
         public DiscardSkill() : base("discard")
         {
-            card = new WrappedCard("DummyCard");
+            card = new WrappedCard(DummyCard.ClassName);
         }
 
         public int Num { get; set; }
         public int MinNum { get; set; }
-        public bool Include_equip { get; set; }
         public bool Optional { get; set; }
-
+        public List<int> AvailableCards { get; set; }
         public List<int> Reserved { get; set; } = new List<int>();
 
         public bool IsFull()
@@ -730,13 +734,10 @@ namespace SanguoshaServer.Game
 
         public override bool ViewFilter(Room room, List<WrappedCard> selected, WrappedCard to_select, Player player)
         {
-            if (selected.Count + Reserved.Count >= Num)
+            if (selected.Count + Reserved.Count >= Num || !AvailableCards.Contains(to_select.Id))
                 return false;
 
-            if (!Include_equip && player.HasEquip(to_select.Name))
-                return false;
-
-            if (RoomLogic.IsCardLimited(room, player, to_select, FunctionCard.HandlingMethod.MethodDiscard) || Reserved.Contains(to_select.Id))
+            if (RoomLogic.IsCardLimited(room, player, to_select, HandlingMethod.MethodDiscard) || Reserved.Contains(to_select.Id))
                 return false;
 
             return true;
@@ -763,7 +764,7 @@ namespace SanguoshaServer.Game
         private string pattern;
         public ExchangeSkill() : base("exchange")
         {
-            card = new WrappedCard("DummyCard");
+            card = new WrappedCard(DummyCard.ClassName);
         }
 
         public void Initialize(int num, int minnum, string expand_pile, string pattern)
@@ -811,7 +812,7 @@ namespace SanguoshaServer.Game
 
         public YijiViewAsSkill() : base("yiji")
         {
-            card = new WrappedCard("YijiCard");
+            card = new WrappedCard(YijiCard.ClassName);
         }
 
         public void Initialize(List<int> ids, int max_num, List<Player> targets, string expand_pile)
@@ -842,27 +843,23 @@ namespace SanguoshaServer.Game
         }
     }
 
-    public class YijiCard : SkillCard
+    public class ProhibitSkill : Skill
     {
-        public YijiCard() : base("YijiCard")
+        public enum ProhibitType
         {
+            Chain,
+            Pindian,
         }
-        public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
-        {
-            return targets.Count == 0 && card.UserString.Split('+').Contains(to_select.Name);
-        }
-        public override void Use(Room room, CardUseStruct card_use)
-        {
-        }
-    }
-
-    public abstract class ProhibitSkill : Skill
-    {
         public ProhibitSkill(string name) : base(name)
         {
         }
 
-        public abstract bool IsProhibited(Room room, Player from, Player to, WrappedCard card, List<Player> others = null);
+        public virtual bool IsProhibited(Room room, Player from, Player to, WrappedCard card, List<Player> others = null) => false;
+        public virtual bool IsProhibited(Room room, Player from, Player to, ProhibitType type) => false;
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = -2;
+        }
     }
     public abstract class FixCardSkill : Skill
     {
@@ -894,7 +891,7 @@ namespace SanguoshaServer.Game
 
         public override WrappedCard ViewAs(Room room, Player player)
         {
-            WrappedCard card = new WrappedCard("ShowGeneralCard")
+            WrappedCard card = new WrappedCard(ShowGeneralCard.ClassName)
             {
                 UserString = Name
             };
@@ -916,12 +913,14 @@ namespace SanguoshaServer.Game
         { }
         public virtual int GetExtra(Room room, Player target) => 0;
         public virtual int GetFixed(Room room, Player target) => -1;
+        public virtual bool Ingnore(Room room, Player player, int card_id) => false;
     }
     public class TargetModSkill : Skill
     {
-        protected string pattern = "Slash";
-        public TargetModSkill(string name) : base(name)
+        protected string pattern = Slash.ClassName;
+        public TargetModSkill(string name, bool skill_related = true) : base(name)
         {
+            SkillRelated = skill_related;
         }
 
         public enum ModType
@@ -932,24 +931,32 @@ namespace SanguoshaServer.Game
             ExtraTarget,
             SpecificAssignee,
             History,
+            SpecificTarget,
+            AttackRange,
         };
 
+        public bool SkillRelated { get; protected set; }
         public virtual string Pattern => pattern;
         public virtual int GetResidueNum(Room room, Player from, WrappedCard card) => 0;
         public virtual int GetExtraTargetNum(Room room, Player from, WrappedCard card) => 0;
-        public virtual bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card) => false;
-        public virtual bool CheckSpecificAssignee(Room room, Player from, Player to, WrappedCard card) => false;
+        public virtual bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card, CardUseReason reason, string pattern) => false;
+        public virtual bool CheckSpecificAssignee(Room room, Player from, Player to, WrappedCard card, string pattern) => false;
         public virtual bool IgnoreCount(Room room, Player from, WrappedCard card) => false;
         public virtual bool CheckExtraTargets(Room room, Player from, Player to, WrappedCard card,
                                   List<Player> previous_targets, List<Player> targets = null) => false;
-        public virtual int GetEffectIndex(Room rom, Player player, WrappedCard card, ModType type) => -1;
-
+        public virtual bool CheckSpecificTarget(Room room, Player from, Player to, WrappedCard card) => false;
+        public virtual bool InAttackRange(Room room, Player from, Player to, WrappedCard card) => false;
+        public virtual void GetEffectIndex(Room room, Player player, WrappedCard card, ModType type, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = -1;
+        }
     }
 
     public abstract class InvalidSkill : Skill
     {
         public InvalidSkill(string name) : base(name)
         {
+            frequency = Frequency.Compulsory;
         }
 
         public abstract bool Invalid(Room room, Player player, string skill);

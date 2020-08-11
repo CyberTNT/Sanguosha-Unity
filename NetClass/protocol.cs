@@ -12,7 +12,7 @@ namespace CommonClassLibrary
         TypeUnknown
     }
 
-    public enum protocol
+    public enum Protocol
     {
         Unknown,
 
@@ -51,6 +51,7 @@ namespace CommonClassLibrary
         Message2Hall, 
         Message2Client,
         Message2Room,
+        MessageSystem,
 
         //ServerData            //type == TypeUserProfile
         NickName,               //昵称命名
@@ -82,6 +83,14 @@ namespace CommonClassLibrary
         //服务器端格式 Body[0] = host id, Body[1] = clients[0].profile, Body[2] = clients[0].status ..以此类推
         #endregion
         UpdateRoom,
+        #region 客户端向服务器发送身份点选信息
+        //客户端格式 Body[0] = "lord" or "rebel"
+        #endregion
+        RoleReserved,
+        #region 客户端向服务器发送点将信息
+        //客户端格式 Body = new List<string>{ "caocao" , "liubei"}
+        #endregion
+        GeneralReserved,
 
         //Game                  type == TypeGameControll
         GameRequest,
@@ -115,7 +124,8 @@ namespace CommonClassLibrary
         RegisterSuccesful,          //注册
         AccountDuplicated,          //帐号申请重复
         PasswordChangeSuccesful,    //密码修改
-        WrongMessage                //协议错误
+        WrongMessage,               //协议错误
+        VersionNotMatch             //版本号不匹配
     }
 
     public enum CheatCode
@@ -150,6 +160,7 @@ namespace CommonClassLibrary
         S_COMMAND_INVOKE_SKILL,
         S_COMMAND_MOVE_FOCUS,
         S_COMMAND_CHOOSE_GENERAL,
+        S_COMMAND_SELECT_GENERAL,
         S_COMMAND_CHOOSE_KINGDOM,
         S_COMMAND_CHOOSE_SUIT,
         S_COMMAND_CHOOSE_DIRECTION,
@@ -158,6 +169,7 @@ namespace CommonClassLibrary
         S_COMMAND_ASK_PEACH,
         S_COMMAND_SET_MARK,
         S_COMMAND_SET_FLAG,
+        S_COMMAND_SET_STRINGMARK,
         S_COMMAND_NULLIFICATION,
         S_COMMAND_MULTIPLE_CHOICE,
         S_COMMAND_PINDIAN,
@@ -167,7 +179,7 @@ namespace CommonClassLibrary
         S_COMMAND_SET_PROPERTY,
         S_COMMAND_CHANGE_HP,
         S_COMMAND_CHAIN_REMOVE,
-        S_COMMAND_OPERATE,           //#30
+        S_COMMAND_OPERATE,
         S_COMMAND_CHEAT,
         S_COMMAND_SURRENDER,
         S_COMMAND_ENABLE_SURRENDER,
@@ -177,7 +189,7 @@ namespace CommonClassLibrary
         S_COMMAND_GET_CARD,
         S_COMMAND_LOSE_CARD,
         S_COMMAND_LOG_EVENT,
-        S_COMMAND_LOG_SKILL,            //#40
+        S_COMMAND_LOG_SKILL,
         S_COMMAND_UPDATE_CARD,
         S_COMMAND_SET_EMOTION,
         S_COMMAND_FILL_AMAZING_GRACE,
@@ -187,7 +199,7 @@ namespace CommonClassLibrary
         S_COMMAND_REVIVE_PLAYER,
         S_COMMAND_ATTACH_SKILL,
         S_COMMAND_NULLIFICATION_ASKED,
-        S_COMMAND_EXCHANGE_KNOWN_CARDS, // For Dimeng only
+        S_COMMAND_EXCHANGE_KNOWN_CARDS,
         S_COMMAND_SET_KNOWN_CARDS,
         S_COMMAND_UPDATE_PILE,
         S_COMMAND_UPDATE_ROUND,
@@ -196,7 +208,7 @@ namespace CommonClassLibrary
         S_COMMAND_SPEAK,
         S_COMMAND_ARRANGE_GENERAL,
         S_COMMAND_FILL_GENERAL,
-        S_COMMAND_TAKE_GENERAL,         //#60
+        S_COMMAND_TAKE_GENERAL,
         S_COMMAND_RECOVER_GENERAL,
         S_COMMAND_REVEAL_GENERAL,
         S_COMMAND_ANIMATE,
@@ -208,7 +220,7 @@ namespace CommonClassLibrary
         S_COMMAND_ADD_ROBOT,
         S_COMMAND_FILL_ROBOTS,
         S_COMMAND_TRUST,
-        S_COMMAND_PAUSE,
+        S_COMMAND_INTELSELECT,
         S_COMMAND_NETWORK_DELAY_TEST,
         S_COMMAND_CHECK_VERSION,
         S_COMMAND_USE_VIRTUAL_CARD,
@@ -219,6 +231,7 @@ namespace CommonClassLibrary
         S_COMMAND_TRIGGER_ORDER,
         S_COMMAND_CHANGE_SKIN,
         S_COMMAND_SKILL_MOVECARDS,
+        S_COMMAND_SKILL_SORTCARDS,
         S_COMMAND_MIRROR_MOVECARDS_STEP,
         S_COMMAND_SET_VISIBLE_CARDS,
         S_COMMAND_GLOBAL_CHOOSECARD,
@@ -227,7 +240,8 @@ namespace CommonClassLibrary
         S_COMMAND_MAPPING_PLAYER,
         S_COMMAND_OWNER_CHANGE,
         S_COMMAND_UPDATE_PRIVATE_PILE,
-        S_COMMAND_UPDATE_CARD_FOOTNAME
+        S_COMMAND_UPDATE_CARD_FOOTNAME,
+        S_COMMAND_SHOWDISTANCE
     };
 
     public enum GameEventType
@@ -253,7 +267,17 @@ namespace CommonClassLibrary
         S_GAME_EVENT_CLIENT_TIP,
         S_GAME_EVENT_CHAIN_ANIMATION,
         S_GAME_EVENT_SHEFU,
+        S_GAME_EVENT_SHOWDISTANCE,
+        S_GAME_EVENT_SKILL_TURN,
+        S_GAME_EVENT_EQUIP_ABOLISH,
+        S_GAME_EVENT_HUASHEN,
     };
+
+    public enum MoveCardType
+    {
+        S_TYPE_MOVE,
+        S_TYPE_SORT,
+    }
 
     public enum RequestType
     {
@@ -278,6 +302,8 @@ namespace CommonClassLibrary
         S_ANIMATE_LIGHTNING,
         S_ANIMATE_HUASHEN,
         S_ANIMATE_BATTLEARRAY,
+        S_ANIMATE_REMOVE,
+        S_ANIMATE_ABUSE,
     };
 
     public enum Game3v3ChooseOrderCommand
@@ -316,7 +342,7 @@ namespace CommonClassLibrary
     public class MyData
     {
         public PacketDescription Description { get; set; }
-        public protocol Protocol { get; set; }
+        public Protocol Protocol { get; set; }
         public List<string> Body { get; set; }
     }
     public struct Profile
@@ -333,5 +359,7 @@ namespace CommonClassLibrary
         public int Draw { get; set; }
         public int Escape { get; set; }
         public int Title { get; set; }
+        public Dictionary<int, string> Titles { get; set; }
+        public Dictionary<int, string> Achievements { get; set; }
     }
 }

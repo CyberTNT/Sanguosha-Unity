@@ -22,12 +22,13 @@ namespace SanguoshaServer.Package
                 new HalberdTrigger(),
                 new BreastPlateSkill(),
                 new IronArmorSkill(),
+                new IronArmorProhibit(),
                 new WoodenOxSkill(),
                 new WoodenOxTriggerSkill(),
                 new JadeSealSkill(),
                 new LureTigerSkill(),
                 new LureTigerProhibit(),
-                new ThreatenEmperorSkill()
+                new ThreatenEmperorSkill(),
             };
             cards = new List<FunctionCard>
             {
@@ -48,23 +49,24 @@ namespace SanguoshaServer.Package
                 new FightTogether(),
                 new AllianceFeast(),
                 new ThreatenEmperor(),
-                new ImperialOrder(),
+                new Edict(),
                 new OffensiveHorse("Jingfan")
             };
         }
     }
 }
 
-namespace SanguoshaServer.Game
+namespace SanguoshaServer.Package
 {
     #region 装备
     public class Blade : Weapon
     {
-        public Blade() : base("Blade", 3) { }
+        public static string ClassName = "Blade";
+        public Blade() : base(ClassName, 3) { }
     }
     public class BladeSkill : WeaponSkill
     {
-        public BladeSkill() : base("Blade")
+        public BladeSkill() : base(Blade.ClassName)
         {
             events = new List<TriggerEvent> { TriggerEvent.CardUsed, TriggerEvent.CardFinished };
             frequency = Frequency.Compulsory;
@@ -88,7 +90,7 @@ namespace SanguoshaServer.Game
 
                         if (blade_use.Count == 0)
                         {
-                            room.RemovePlayerDisableShow(p, "Blade");
+                            room.RemovePlayerDisableShow(p, Blade.ClassName);
                         }
                     }
                 }
@@ -126,12 +128,12 @@ namespace SanguoshaServer.Game
                 if (!p.HasShownAllGenerals())
                     play_animation = true;
 
-                room.SetPlayerDisableShow(p, "hd", "Blade"); // this effect should always make sense.
+                room.SetPlayerDisableShow(p, "hd", Blade.ClassName); // this effect should always make sense.
             }
 
             if (play_animation)
             {
-                room.SetEmotion(player, "blade");
+                room.SetEmotion(player, Blade.ClassName);
                 Thread.Sleep(400);
             }
 
@@ -140,7 +142,8 @@ namespace SanguoshaServer.Game
     }
     public class Halberd : Weapon
     {
-        public Halberd() : base("Halberd", 4) { }
+        public static string ClassName = "Halberd";
+        public Halberd() : base(ClassName, 4) { }
     }
     public class HalberdSkill : WeaponSkill
     {
@@ -157,7 +160,7 @@ namespace SanguoshaServer.Game
                 List <Player> selected = new List<Player>();
                 foreach (Player p in use.To)
                     selected.Add(p);
-                TargetModSkill skill = (TargetModSkill)Engine.GetSkill("Halberd");
+                TargetModSkill skill = (TargetModSkill)Engine.GetSkill(Halberd.ClassName);
                 foreach (Player p in room.GetOtherPlayers(player))
                 if (!use.To.Contains(p) && skill.CheckExtraTargets(room, player, p, use.Card, selected) && fcard.ExtratargetFilter(room, selected, p, player, use.Card))
                     return new TriggerStruct(Name, player);
@@ -170,7 +173,7 @@ namespace SanguoshaServer.Game
             CardUseStruct use = (CardUseStruct)data;
             room.SetTag("extra_target_skill", data);                   //for AI
             List<Player> targets = room.AskForExtraTargets(player, use.To, use.Card,
-                                                                     "Halberd", "@extra_targets1:::" + use.Card.Name, true);
+                                                                     Halberd.ClassName, "@halberd-target:::" + use.Card.Name, true);
             room.RemoveTag("extra_target_skill");
             if (targets.Count > 0)
             {
@@ -198,9 +201,9 @@ namespace SanguoshaServer.Game
                 targets.AddRange(use.To);
                 room.SortByActionOrder(ref targets);
                 use.To = targets;
-                use.Card.SetFlags("Halberd");
+                use.Card.SetFlags(Halberd.ClassName);
                 data = use;
-                room.SetEmotion(player, "halberd");
+                room.SetEmotion(player, Halberd.ClassName);
             }
 
             return false;
@@ -208,14 +211,14 @@ namespace SanguoshaServer.Game
     }
     public class HalberdTM : TargetModSkill
     {
-        public HalberdTM() : base("Halberd")
+        public HalberdTM() : base(Halberd.ClassName)
         {
             skill_type = SkillType.Attack;
         }
         public override bool CheckExtraTargets(Room room, Player from, Player to, WrappedCard card, List<Player> previous_targets, List<Player> selected_targets = null)
         {
             if (!Engine.MatchExpPattern(room, pattern, from, card) || from.GetMark("Equips_nullified_to_Yourself") > 0 || !from.HasWeapon(Name)
-                || card.SubCards.Contains(from.Weapon.Key))
+                || card.SubCards.Contains(from.Weapon.Key) || to.GetMark("Equips_of_Others_nullified_to_You") > 0)
                 return false;
 
             List<string> kingdoms = new List<string>();
@@ -223,17 +226,11 @@ namespace SanguoshaServer.Game
             if (selected_targets != null)
                 targets.AddRange(selected_targets);
             foreach (Player p in targets) {
-                if (!p.HasShownOneGeneral() || p.Role == "careerist")
-                    continue;
-                kingdoms.Add(p.Kingdom);
+                if (p.HasShownOneGeneral() && p.Role != "careerist")
+                    kingdoms.Add(p.Kingdom);
             }
-            if (to.GetMark("Equips_of_Others_nullified_to_You") > 0)
-                return false;
-            if (to.HasShownOneGeneral() && to.Role == "careerist") // careerist!
-                return false;
-            if (to.HasShownOneGeneral() && kingdoms.Contains(to.Kingdom))
-                return false;
-            return !targets.Contains(to);
+
+            return !targets.Contains(to) && (!to.HasShownOneGeneral() || to.GetRoleEnum() == Player.PlayerRole.Careerist || !kingdoms.Contains(to.Kingdom));
         }
     }
     public class HalberdTrigger : WeaponSkill
@@ -248,7 +245,7 @@ namespace SanguoshaServer.Game
         {
             if (triggerEvent == TriggerEvent.SlashMissed && data is SlashEffectStruct effect)
             {
-                if (effect.Slash.HasFlag("Halberd"))
+                if (effect.Slash.HasFlag(Halberd.ClassName))
                     effect.Slash.SetFlags("halberd_slash_missed");
             }
         }
@@ -268,7 +265,7 @@ namespace SanguoshaServer.Game
             {
                 Type = "#Halberdnullified",
                 From = effect.From.Name,
-                Arg = "Halberd",
+                Arg = Halberd.ClassName,
                 Arg2 = effect.Slash.Name,
                 To = new List<string> { effect.To.Name }
             };
@@ -278,20 +275,24 @@ namespace SanguoshaServer.Game
     }
     public class BreastPlate : Armor
     {
-        public BreastPlate() : base("BreastPlate") { }
+        public static string ClassName = "BreastPlate";
+        public BreastPlate() : base(ClassName) { }
     }
     public class BreastPlateSkill : ArmorSkill
     {
-        public BreastPlateSkill() : base("BreastPlate")
+        public BreastPlateSkill() : base(BreastPlate.ClassName)
         {
-            events.Add(TriggerEvent.DamageInflicted);
+            events.Add(TriggerEvent.DamageDefined);
             frequency = Frequency.Compulsory;
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            DamageStruct damage = (DamageStruct)data;
-            if (base.Triggerable(player, room) && damage.Damage >= player.Hp && player.GetArmor())
+            if (data is DamageStruct damage && base.Triggerable(player, room) && damage.Damage >= player.Hp && player.GetArmor()
+                && !player.ArmorIsNullifiedBy(damage.From))
+            {
                 return new TriggerStruct(Name, player);
+            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
@@ -300,47 +301,41 @@ namespace SanguoshaServer.Game
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_NATURAL_ENTER, player.Name, Name, null);
-            room.MoveCardTo(room.GetCard(player.Armor.Key), null, Player.Place.DiscardPile, reason, true);
-            DamageStruct damage = (DamageStruct)data;
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_NATURAL_ENTER, player.Name, Name, null);
+            room.MoveCardTo(room.GetCard(player.Armor.Key), null, Place.DiscardPile, reason, true);
             LogMessage log = new LogMessage
             {
-                Type = "#Breastplate",
+                Type = "#damaged-prevent",
                 From = player.Name,
-                Arg = damage.Damage.ToString()
+                Arg = Name
             };
-            if (damage.From != null)
-                log.To = new List<string> { damage.From.Name };
-            if (damage.Nature == DamageStruct.DamageNature.Normal)
-                log.Arg2 = "normal_nature";
-            else if (damage.Nature == DamageStruct.DamageNature.Fire)
-                log.Arg2 = "fire_nature";
-            else if (damage.Nature == DamageStruct.DamageNature.Thunder)
-                log.Arg2 = "thunder_nature";
             room.SendLog(log);
+
             return true;
         }
     }
     public class IronArmor : Armor
     {
-        public IronArmor() : base("IronArmor") { }
+        public static string ClassName = "IronArmor";
+        public IronArmor() : base(ClassName) { }
     }
     public class IronArmorSkill : ArmorSkill
     {
-        public IronArmorSkill() : base("IronArmor")
+        public IronArmorSkill() : base(IronArmor.ClassName)
         {
             events.Add(TriggerEvent.TargetConfirming);
             frequency = Frequency.Compulsory;
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (!base.Triggerable(player, room)) return new TriggerStruct();
-            CardUseStruct use = (CardUseStruct)data;
-            if (use.Card == null) return new TriggerStruct();
-            if (!use.To.Contains(player) || player.GetMark("Equips_of_Others_nullified_to_You") > 0) return new TriggerStruct();
-            FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
-            if (fcard is FireAttack || fcard is FireSlash || fcard is BurningCamps)
-                return new TriggerStruct(Name, player);
+            if (base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null && use.To.Contains(player)
+                && player.GetMark("Equips_of_Others_nullified_to_You") == 0 && !player.ArmorIsNullifiedBy(use.From))
+            {
+                FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
+                if (fcard is FireAttack || fcard is FireSlash || fcard is BurningCamps)
+                    return new TriggerStruct(Name, player);
+            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
@@ -364,60 +359,89 @@ namespace SanguoshaServer.Game
             return false;
         }
     }
+
+    public class IronArmorProhibit : ProhibitSkill
+    {
+        public IronArmorProhibit() : base("#IronArmor-pro")
+        {
+        }
+
+        public override bool IsProhibited(Room room, Player from, Player to, ProhibitType type)
+        {
+            if (type == ProhibitType.Chain && RoomLogic.HasArmorEffect(room, to, IronArmor.ClassName) && !to.ArmorIsNullifiedBy(from))
+            {
+                List<string> big_kingdoms = RoomLogic.GetBigKingdoms(room);
+                if (big_kingdoms.Count > 0)
+                {
+                    string kingdom = (to.HasShownOneGeneral() ? (to.GetRoleEnum() == PlayerRole.Careerist ? to.Name : to.Kingdom) : string.Empty);
+                    if (!big_kingdoms.Contains(kingdom))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
     public class WoodenOx : Treasure
     {
-        public WoodenOx() : base("WoodenOx") { }
+        public static string ClassName = "WoodenOx";
+        public WoodenOx() : base(ClassName) { }
         public override void OnUninstall(Room room, Player player, WrappedCard card)
         {
-            player.AddHistory("WoodenOxCard", 0);
+            player.AddHistory(WoodenOxCard.ClassName, 0);
             base.OnUninstall(room, player, card);
         }
     }
     public class WoodenOxCard : SkillCard
     {
-        public WoodenOxCard() : base("WoodenOxCard")
+        public static string ClassName = "WoodenOxCard";
+        public WoodenOxCard() : base(ClassName)
         {
             target_fixed = true;
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
             WrappedCard card = card_use.Card;
             room.AddToPile(card_use.From, "wooden_ox", card.SubCards, false);
 
-            List<Player> targets = new List<Player>();
-            foreach (Player p in room.GetOtherPlayers(card_use.From)) {
-                if (!p.GetTreasure())
-                    targets.Add(p);
-            }
-            if (targets.Count == 0)
-                return;
-            Player target = room.AskForPlayerChosen(card_use.From, targets, "WoodenOx", "@wooden_ox-move", true);
-            if (target != null)
+            WrappedCard treasure = room.GetCard(card_use.From.Treasure.Key);
+
+            if (treasure != null)
             {
-                WrappedCard treasure = room.GetCard(card_use.From.Treasure.Key);
-                if (treasure != null)
+                List<Player> targets = new List<Player>();
+                foreach (Player p in room.GetOtherPlayers(card_use.From))
+                {
+                    if (!p.GetTreasure() && RoomLogic.CanPutEquip(p, treasure))
+                        targets.Add(p);
+                }
+                if (targets.Count == 0)
+                    return;
+                Player target = room.AskForPlayerChosen(card_use.From, targets, WoodenOx.ClassName, "@wooden_ox-move", true);
+                if (target != null)
+                {
                     room.MoveCardTo(treasure, card_use.From, target, Place.PlaceEquip,
-                        new CardMoveReason(CardMoveReason.MoveReason.S_REASON_TRANSFER, card_use.From.Name, "WoodenOx", null));
+                        new CardMoveReason(MoveReason.S_REASON_TRANSFER, card_use.From.Name, WoodenOx.ClassName, null));
+                }
             }
         }
     }
     public class WoodenOxSkill : OneCardViewAsSkill
     {
-        public WoodenOxSkill() : base("WoodenOx")
+        public WoodenOxSkill() : base(WoodenOx.ClassName)
         {
             filter_pattern = ".|.|.|hand";
         }
         public override bool IsEnabledAtPlay(Room room, Player player)
         {
-            return !player.HasUsed("WoodenOxCard");
+            return !player.HasUsed(WoodenOxCard.ClassName);
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard ox = new WrappedCard("WoodenOxCard");
+            WrappedCard ox = new WrappedCard(WoodenOxCard.ClassName);
             ox.AddSubCard(card);
-            ox.Skill = "WoodenOx";
+            ox.Skill = WoodenOx.ClassName;
             return ox;
         }
     }
@@ -435,7 +459,7 @@ namespace SanguoshaServer.Game
             if (move.From == null || !move.From.Alive) return new TriggerStruct();
 
             Player player = move.From;
-            if (player.HasTreasure("WoodenOx"))
+            if (player.HasTreasure(WoodenOx.ClassName))
             {
                 int count = 0;
                 for (int i = 0; i < move.Card_ids.Count; i++)
@@ -449,7 +473,7 @@ namespace SanguoshaServer.Game
                 {
                     if (move.From_places[i] != Place.PlaceEquip && move.From_places[i] != Place.PlaceTable) continue;
                     WrappedCard card = Engine.GetRealCard(move.Card_ids[i]);
-                    if (card?.Name == "WoodenOx")
+                    if (card?.Name == WoodenOx.ClassName)
                         return new TriggerStruct(Name, player);
                 }
             }
@@ -460,7 +484,7 @@ namespace SanguoshaServer.Game
         {
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
             Player player = move.From;
-            if (player.HasTreasure("WoodenOx"))
+            if (player.HasTreasure(WoodenOx.ClassName))
             {
                 int count = 0;
                 for (int i = 0; i < move.Card_ids.Count; i++)
@@ -485,15 +509,15 @@ namespace SanguoshaServer.Game
                 {
                     if (move.From_places[i] != Place.PlaceEquip && move.From_places[i] != Place.PlaceTable) continue;
                     WrappedCard card = Engine.GetRealCard(move.Card_ids[i]);
-                    if (card?.Name == "WoodenOx")
+                    if (card?.Name == WoodenOx.ClassName)
                     {
                         Player to = move.To;
-                        if (to != null && to.GetTreasure() && to.Treasure.Value == "WoodenOx"
-                            && move.To_place ==  Place.PlaceEquip && move.Reason.Reason == CardMoveReason.MoveReason.S_REASON_TRANSFER)
+                        if (to != null && to.GetTreasure() && to.Treasure.Value == WoodenOx.ClassName
+                            && move.To_place ==  Place.PlaceEquip && move.Reason.Reason == MoveReason.S_REASON_TRANSFER)
                         {
                             List<Player> p_list = new List<Player>{ to };
                             room.AddToPile(to, "wooden_ox", player.GetPile("wooden_ox"), false, p_list,
-                                new CardMoveReason(CardMoveReason.MoveReason.S_REASON_TRANSFER, player.Name));
+                                new CardMoveReason(MoveReason.S_REASON_TRANSFER, player.Name));
                         }
                         else
                         {
@@ -509,24 +533,25 @@ namespace SanguoshaServer.Game
     }
     public class JadeSeal : Treasure
     {
-        public JadeSeal() : base("JadeSeal") { }
+        public static string ClassName = "JadeSeal";
+        public JadeSeal() : base(ClassName) { }
     }
     public class JadeSealCard : SkillCard
     {
-        public JadeSealCard() : base("JadeSealCard")
+        public static string ClassName = "JadeSealCard";
+        public JadeSealCard() : base(ClassName)
         {
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
-            WrappedCard kb = new WrappedCard("KnownBoth");
+            WrappedCard kb = new WrappedCard(KnownBoth.ClassName);
             FunctionCard fcard = Engine.GetFunctionCard(kb.Name);
             return fcard.TargetFilter(room, targets, to_select, Self, kb);
         }
         public override WrappedCard Validate(Room room, CardUseStruct use)
         {
-            WrappedCard kb = new WrappedCard("KnownBoth")
+            WrappedCard kb = new WrappedCard(KnownBoth.ClassName)
             {
                 Skill = "_JadeSeal"
             };
@@ -535,25 +560,30 @@ namespace SanguoshaServer.Game
     }
     public class JadeSealViewAsSkill : ZeroCardViewAsSkill
     {
-        public JadeSealViewAsSkill() : base("JadeSeal")
+        public JadeSealViewAsSkill() : base(JadeSeal.ClassName)
         {
-            response_pattern = "@@JadeSeal!";
         }
+
+        public override bool IsAvailable(Room room, Player invoker, CardUseStruct.CardUseReason reason, string pattern, string position = null)
+        {
+            return reason == CardUseStruct.CardUseReason.CARD_USE_REASON_RESPONSE_USE && pattern == "@@JadeSeal!";
+        }
+
         public override WrappedCard ViewAs(Room room, Player player)
         {
-            return new WrappedCard("JadeSealCard");
+            return new WrappedCard(JadeSealCard.ClassName);
         }
     }
     public class JadeSealSkill : TreasureSkill
     {
-        public JadeSealSkill() : base("JadeSeal")
+        public JadeSealSkill() : base(JadeSeal.ClassName)
         {
             events = new List<TriggerEvent> { TriggerEvent.EventPhaseProceeding, TriggerEvent.EventPhaseStart };
             view_as_skill = new JadeSealViewAsSkill();
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (!base.Triggerable(player, room) || !player.HasShownOneGeneral())
+            if (!RoomLogic.HasTreasureEffect(room, player, Name) || !player.HasShownOneGeneral())
                 return new TriggerStruct();
             if (triggerEvent == TriggerEvent.EventPhaseProceeding && player.Phase == PlayerPhase.Draw && (int)data >= 0)
             {
@@ -561,7 +591,7 @@ namespace SanguoshaServer.Game
             }
             else if (triggerEvent == TriggerEvent.EventPhaseStart && player.Phase == PlayerPhase.Play)
             {
-                WrappedCard kb = new WrappedCard("KnownBoth")
+                WrappedCard kb = new WrappedCard(KnownBoth.ClassName)
                 {
                     Skill = "_JadeSeal"
                 };
@@ -575,9 +605,9 @@ namespace SanguoshaServer.Game
         {
             if (triggerEvent == TriggerEvent.EventPhaseProceeding)
                 return info;
-            if (room.AskForUseCard(player, "@@JadeSeal!", "@JadeSeal") == null)
+            if (room.AskForUseCard(player, "@@JadeSeal!", "@JadeSeal", null) == null)
             {
-                WrappedCard kb = new WrappedCard("KnownBoth")
+                WrappedCard kb = new WrappedCard(KnownBoth.ClassName)
                 {
                     Skill = "_JadeSeal"
                 };
@@ -607,7 +637,8 @@ namespace SanguoshaServer.Game
     #region 锦囊
     public class Drowning : SingleTargetTrick
     {
-        public Drowning() : base("Drowning") { }
+        public static string ClassName = "Drowning";
+        public Drowning() : base(Drowning.ClassName) { }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
             int total_num = 1 + Engine.CorrectCardTarget(room, TargetModSkill.ModType.ExtraMaxTarget, Self, card);
@@ -647,7 +678,8 @@ namespace SanguoshaServer.Game
     }
     class BurningCamps : AOE
     {
-        public BurningCamps() : base("BurningCamps") { }
+        public static string ClassName = "BurningCamps";
+        public BurningCamps() : base(ClassName) { }
         public override bool IsAvailable(Room room, Player player, WrappedCard card)
         {
             bool canUse = false;
@@ -678,8 +710,18 @@ namespace SanguoshaServer.Game
                         Arg2 = Name
                     };
                     room.SendLog(log);
-
-                    room.BroadcastSkillInvoke(skill.Name, player);
+                    if (RoomLogic.PlayerHasShownSkill(room, player, skill))
+                    {
+                        room.NotifySkillInvoked(player, skill.Name);
+                        GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, skill.Name);
+                        string genral = gsk.General;
+                        int skin_id = gsk.SkinId;
+                        string skill_name = skill.Name;
+                        int audio = -1;
+                        skill.GetEffectIndex(room, player, card_use.Card, ref audio, ref skill_name, ref genral, ref skin_id);
+                        if (audio >= -1)
+                            room.BroadcastSkillInvoke(skill_name, "male", audio, genral, skin_id);
+                    }
                 }
                 else
                    card_use.To.Add(player);
@@ -693,7 +735,8 @@ namespace SanguoshaServer.Game
     }
     public class LureTiger : TrickCard
     {
-        public LureTiger() : base("LureTiger") { }
+        public static string ClassName = "LureTiger";
+        public LureTiger() : base(ClassName) { }
         public override string GetSubtype()=> "lure_tiger";
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -707,37 +750,39 @@ namespace SanguoshaServer.Game
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
-            List<Player> targets = card_use.To;
-            List<string> nullified_list = room.ContainsTag("CardUseNullifiedList") ? (List<string>)room.GetTag("CardUseNullifiedList") : new List<string>();
-            bool all_nullified = nullified_list.Contains("_ALL_TARGETS");
-            foreach (Player target in targets) {
+            List<Player> targets = new List<Player>(card_use.To);
+            for (int index = 0; index < targets.Count; index++)
+            {
+                Player target = targets[index];
                 CardEffectStruct effect = new CardEffectStruct
                 {
                     Card = card_use.Card,
                     From = card_use.From,
                     To = target,
                     Multiple = (targets.Count > 1),
-                    Nullified = (all_nullified || nullified_list.Contains(target.Name))
+                    Drank = card_use.Drank,
+                    ExDamage = 0,
+                    BasicEffect = card_use.EffectCount[index]
                 };
 
                 List<Player> players = new List<Player>();
-                for (int i = targets.IndexOf(target); i < targets.Count; i++)
+                for (int i = index; i < targets.Count; i++)
                 {
-                    if (!nullified_list.Contains(targets[i].Name) && !all_nullified)
+                    if (card_use.EffectCount.Count <= i || !card_use.EffectCount[i].Nullified)
                         players.Add(targets[i]);
                 }
-                room.SetTag("targets" + RoomLogic.CardToString(room, card_use.Card), players);
+                effect.StackPlayers = players;
 
                 room.CardEffect(effect);
             }
             //room.DrawCards(card_use.From, 1, Name);
 
-            List<int> table_cardids = room.GetCardIdsOnTable(card_use.Card);
+            List<int> table_cardids = room.GetCardIdsOnTable(room.GetSubCards(card_use.Card));
             if (table_cardids.Count > 0)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
                 {
-                    CardString = RoomLogic.CardToString(room, card_use.Card)
+                    Card = card_use.Card
                 };
                 if (targets.Count == 1) reason.TargetId = targets[0].Name;
                 CardsMoveStruct move = new CardsMoveStruct(table_cardids, card_use.From, null, Place.PlaceTable, Place.DiscardPile, reason);
@@ -755,12 +800,12 @@ namespace SanguoshaServer.Game
     {
         public LureTigerSkill() : base("lure_tiger_effect")
         {
-            events = new List<TriggerEvent> { TriggerEvent.Death, TriggerEvent.EventPhaseChanging, TriggerEvent.HpChanged };
+            events = new List<TriggerEvent> { TriggerEvent.Death, TriggerEvent.EventPhaseChanging, TriggerEvent.HpChanging };
             global = true;
         }
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
-            if (triggerEvent == TriggerEvent.HpChanged || !player.HasFlag("LureTigerUser"))
+            if (triggerEvent == TriggerEvent.HpChanging || !player.HasFlag("LureTigerUser"))
                 return;
             if (triggerEvent == TriggerEvent.EventPhaseChanging && data is PhaseChangeStruct change)
             {
@@ -780,7 +825,7 @@ namespace SanguoshaServer.Game
 
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (triggerEvent == TriggerEvent.HpChanged && player.Removed)
+            if (triggerEvent == TriggerEvent.HpChanging && player.Removed)
             {
                 return new TriggerStruct(Name, player);
             }
@@ -854,7 +899,8 @@ namespace SanguoshaServer.Game
 
     class FightTogether : TrickCard
     {
-        public FightTogether() : base("FightTogether") { }
+        public static string ClassName = "FightTogether";
+        public FightTogether() : base(ClassName) { }
         public override string GetSubtype()=> "fight_together";
         public override bool IsAvailable(Room room, Player player, WrappedCard card)
         {
@@ -864,8 +910,7 @@ namespace SanguoshaServer.Game
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
             bool big = RoomLogic.GetBigKingdoms(room).Count > 0;
-            if (!big || targets.Count > 0 || RoomLogic.IsCardLimited(room, Self, card, HandlingMethod.MethodUse)
-                || Engine.IsProhibited(room, Self, to_select, card, targets) != null)
+            if (!big || targets.Count > 0 || RoomLogic.IsCardLimited(room, Self, card, HandlingMethod.MethodUse) || Engine.IsProhibited(room, Self, to_select, card, targets) != null)
                 return false;
 
             return true;
@@ -893,8 +938,9 @@ namespace SanguoshaServer.Game
                 {
                     bool big = (use.Pattern == "big");
                     List<Player> targets = new List<Player>(), prohibites = new List<Player>();
-                    foreach (Player p in room.GetAlivePlayers()) {
-                        string kingdom = (p.HasShownOneGeneral() ? (p.Role == "careerist" ? p.Name : p.Kingdom) : string.Empty);
+                    foreach (Player p in room.GetAlivePlayers())
+                    {
+                        string kingdom = (p.HasShownOneGeneral() ? (p.GetRoleEnum() == Player.PlayerRole.Careerist ? p.Name : p.Kingdom) : string.Empty);
                         if (big_kingdoms.Contains(kingdom) == big)
                         {
                             Skill skill = RoomLogic.IsProhibited(room, use.From, p, use.Card);
@@ -926,7 +972,18 @@ namespace SanguoshaServer.Game
                                     Arg2 = Name
                                 };
                                 room.SendLog(log);
-                                room.BroadcastSkillInvoke(skill.Name, player);
+                                if (RoomLogic.PlayerHasShownSkill(room, player, skill))
+                                {
+                                    room.NotifySkillInvoked(player, skill.Name);
+                                    GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, skill.Name);
+                                    string genral = gsk.General;
+                                    int skin_id = gsk.SkinId;
+                                    string skill_name = skill.Name;
+                                    int audio = -1;
+                                    skill.GetEffectIndex(room, player, use.Card, ref audio, ref skill_name, ref genral, ref skin_id);
+                                    if (audio >= -1)
+                                        room.BroadcastSkillInvoke(skill_name, "male", audio, genral, skin_id);
+                                }
                             }
                         }
                     }
@@ -951,7 +1008,8 @@ namespace SanguoshaServer.Game
     }
     class AllianceFeast : TrickCard
     {
-        public AllianceFeast() : base("AllianceFeast") { }
+        public static string ClassName = "AllianceFeast";
+        public AllianceFeast() : base(ClassName) { }
         public override string GetSubtype() => "alliance_feast";
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -984,7 +1042,18 @@ namespace SanguoshaServer.Game
                             Arg2 = Name
                         };
                         room.SendLog(_log);
-                        room.BroadcastSkillInvoke(skill.Name, p);
+                        if (RoomLogic.PlayerHasShownSkill(room, p, skill))
+                        {
+                            room.NotifySkillInvoked(p, skill.Name);
+                            GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, p, skill.Name);
+                            string genral = gsk.General;
+                            int skin_id = gsk.SkinId;
+                            string skill_name = skill.Name;
+                            int audio = -1;
+                            skill.GetEffectIndex(room, p, card, ref audio, ref skill_name, ref genral, ref skin_id);
+                            if (audio >= -1)
+                                room.BroadcastSkillInvoke(skill_name, "male", audio, genral, skin_id);
+                        }
                     }
                     else
                         targets.Add(p);
@@ -1014,35 +1083,46 @@ namespace SanguoshaServer.Game
 
             card_use = (CardUseStruct)data;
 
-            if (TypeID != CardType.TypeSkill)
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_USE, player.Name, null, card_use.Card.Skill, null)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_USE, player.Name, null, card_use.Card.Skill, null)
-                {
-                    CardString = RoomLogic.CardToString(room, card_use.Card),
-                    General = RoomLogic.GetGeneralSkin(room, player, card_use.Card.Skill, card_use.Card.SkillPosition)
-                };
-                if (card_use.To.Count == 1)
-                    reason.TargetId = card_use.To[0].Name;
+                Card = card_use.Card,
+                General = RoomLogic.GetGeneralSkin(room, player, card_use.Card.Skill, card_use.Card.SkillPosition)
+            };
+            if (card_use.To.Count == 1) reason.TargetId = card_use.To[0].Name;
 
+            if (used_cards.Count == 0)
+            {
+                CardMoveReasonStruct virtual_reason = new CardMoveReasonStruct
+                {
+                    Reason = reason.Reason,
+                    PlayerId = reason.PlayerId,
+                    TargetId = reason.TargetId,
+                    SkillName = reason.SkillName,
+                    EventName = reason.EventName,
+                    CardString = RoomLogic.CardToString(room, card_use.Card),
+                    General = reason.General
+                };
+                ClientCardsMoveStruct move = new ClientCardsMoveStruct(-1, player, Place.PlaceTable, virtual_reason)              //show virtual card on table
+                {
+                    From_place = Place.PlaceUnknown,
+                    From = player.Name,
+                    Is_last_handcard = false,
+                };
+                room.NotifyUsingVirtualCard(RoomLogic.CardToString(room, card_use.Card), move);
+            }
+            else
+            {
+                room.RecordSubCards(card_use.Card);
                 foreach (int id in used_cards)
                 {
                     CardsMoveStruct move = new CardsMoveStruct(id, null, Place.PlaceTable, reason);
                     moves.Add(move);
                 }
                 room.MoveCardsAtomic(moves, true);
-                if (used_cards.Count == 0)
-                {                                                                                 //show virtual card on table
-                    CardsMoveStruct move = new CardsMoveStruct(-1, player, Place.PlaceTable, reason)
-                    {
-                        From_place = Place.PlaceUnknown,
-                        From = player.Name,
-                        Is_last_handcard = false,
-                    };
-                    room.NotifyUsingVirtualCard(RoomLogic.CardToString(room, card_use.Card), move);
-                }
-
-                room.SendLog(log);
             }
+            
+
+            room.SendLog(log);
 
             room.RoomThread.Trigger(TriggerEvent.CardUsedAnnounced, room, player, ref data);
             room.RoomThread.Trigger(TriggerEvent.CardTargetAnnounced, room, player, ref data);
@@ -1052,27 +1132,29 @@ namespace SanguoshaServer.Game
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
-            List<Player> targets = card_use.To;
-            List<string> nullified_list = room.ContainsTag("CardUseNullifiedList") ? (List<string>)room.GetTag("CardUseNullifiedList") : new List<string>();
-            bool all_nullified = nullified_list.Contains("_ALL_TARGETS");
-            foreach (Player target in targets)
+            List<Player> targets = new List<Player>(card_use.To);
+
+            for (int index = 0; index < targets.Count; index++)
             {
+                Player target = targets[index];
                 CardEffectStruct effect = new CardEffectStruct
                 {
                     Card = card_use.Card,
                     From = card_use.From,
                     To = target,
                     Multiple = (targets.Count > 1),
-                    Nullified = (all_nullified || nullified_list.Contains(target.Name))
+                    Drank = card_use.Drank,
+                    ExDamage = 0,
+                    BasicEffect = card_use.EffectCount.Count > index ? card_use.EffectCount[index] : new CardBasicEffect(target, 0, 0, 0)
                 };
 
                 List<Player> players = new List<Player>();
-                for (int i = targets.IndexOf(target); i < targets.Count; i++)
+                for (int i = index; i < targets.Count; i++)
                 {
-                    if (!nullified_list.Contains(targets[i].Name) && !all_nullified)
+                    if (card_use.EffectCount.Count <= i || !card_use.EffectCount[i].Nullified)
                         players.Add(targets[i]);
                 }
-                room.SetTag("targets" + RoomLogic.CardToString(room, card_use.Card), players);
+                effect.StackPlayers = players;
 
                 if (target == card_use.From)
                 {
@@ -1089,12 +1171,12 @@ namespace SanguoshaServer.Game
                 target.SetMark(Name, 0);
             }
 
-            List<int> table_cardids = room.GetCardIdsOnTable(card_use.Card);
+            List<int> table_cardids = room.GetCardIdsOnTable(room.GetSubCards(card_use.Card));
             if (table_cardids.Count > 0)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
                 {
-                    CardString = RoomLogic.CardToString(room, card_use.Card)
+                    Card = card_use.Card
                 };
                 CardsMoveStruct move = new CardsMoveStruct(table_cardids, card_use.From, null, Place.PlaceTable, Place.DiscardPile, reason);
                 room.MoveCardsAtomic(new List<CardsMoveStruct> { move }, true);
@@ -1157,7 +1239,7 @@ namespace SanguoshaServer.Game
     /*
     class AllianceFeast : TrickCard
     {
-        public AllianceFeast() : base("AllianceFeast") { }
+        public AllianceFeast() : base(AllianceFeast.ClassName) { }
         public override string GetSubtype()=> "alliance_feast";
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -1242,7 +1324,7 @@ namespace SanguoshaServer.Game
             List<int> table_cardids = room.GetCardIdsOnTable(card_use.Card);
             if (table_cardids.Count > 0)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_USE, card_use.From.Name, null, card_use.Card.Skill, null)
                 {
                     CardString = RoomLogic.CardToString(room, card_use.Card)
                 };
@@ -1288,7 +1370,8 @@ namespace SanguoshaServer.Game
     */
     public class ThreatenEmperor : SingleTargetTrick
     {
-        public ThreatenEmperor() : base("ThreatenEmperor") { target_fixed = true; }
+        public static string ClassName = "ThreatenEmperor";
+        public ThreatenEmperor() : base(ClassName) { target_fixed = true; }
         public override void OnUse(Room room, CardUseStruct use)
         {
             if (use.To.Count == 0)
@@ -1309,9 +1392,9 @@ namespace SanguoshaServer.Game
             bool invoke = big_kingdoms.Count > 0;
             if (invoke)
             {
-                if (big_kingdoms.Count == 1 && big_kingdoms[0].StartsWith("sgs")) // for JadeSeal
+                if (big_kingdoms.Count == 1 && big_kingdoms[0].StartsWith("SGS")) // for JadeSeal
                     invoke = big_kingdoms.Contains(player.Name);
-                else if (player.Role == "careerist")
+                else if (player.GetRoleEnum() == PlayerRole.Careerist)
                     invoke = false;
                 else
                     invoke = big_kingdoms.Contains(player.Kingdom);
@@ -1321,26 +1404,27 @@ namespace SanguoshaServer.Game
     }
     public class ThreatenEmperorSkill : TriggerSkill
     {
-        public ThreatenEmperorSkill() : base("ThreatenEmperor")
+        public ThreatenEmperorSkill() : base(ThreatenEmperor.ClassName)
         {
-            events.Add(TriggerEvent.EventPhaseEnd);
+            events = new List<TriggerEvent> { TriggerEvent.EventPhaseEnd, TriggerEvent.EventPhaseChanging };
             global = true;
         }
-        public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
-            List<TriggerStruct> list = new List<TriggerStruct>();
-            if (player.Phase != PlayerPhase.Discard)
-                return list;
-            foreach (Player p in room.GetAllPlayers())
-                if (p.GetMark("ThreatenEmperorExtraTurn") > 0)
-                    list.Add(new TriggerStruct(Name, p));
+            if (triggerEvent == TriggerEvent.EventPhaseChanging && data is PhaseChangeStruct change && change.To == PlayerPhase.NotActive && player.GetMark("ThreatenEmperorExtraTurn") > 0)
+                player.SetMark("ThreatenEmperorExtraTurn", 0);
+        }
+        public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
+        {
+            if (triggerEvent == TriggerEvent.EventPhaseEnd && player.Phase == PlayerPhase.Discard && player.Alive && player.GetMark("ThreatenEmperorExtraTurn") > 0)
+                return new TriggerStruct(Name, player);
 
-            return list;
+            return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
             ask_who.RemoveMark("ThreatenEmperorExtraTurn");
-            if (room.AskForCard(ask_who, Name, ".!", "@threaten_emperor", data, Name) != null)
+            if (room.AskForCard(ask_who, Name, ".", "@threaten_emperor", data, Name) != null)
                 return info;
             return new TriggerStruct();
         }
@@ -1357,50 +1441,10 @@ namespace SanguoshaServer.Game
         }
     }
 
-    /*
-    public class ThreatenEmperorSkill : TriggerSkill
+    public class Edict : GlobalEffect
     {
-        public ThreatenEmperorSkill() : base("ThreatenEmperor")
-        {
-            events.Add(TriggerEvent.EventPhaseChanging);
-            global = true;
-        }
-        public override int GetPriority() => 1;
-        public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
-        {
-            List<TriggerStruct> list = new List<TriggerStruct>();
-            PhaseChangeStruct change = (PhaseChangeStruct)data;
-            if (change.To != PlayerPhase.NotActive)
-                return list;
-            foreach (Player p in room.GetAllPlayers())
-                if (p.GetMark("ThreatenEmperorExtraTurn") > 0)
-                    list.Add(new TriggerStruct(Name, p));
-
-            return list;
-        }
-        public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
-        {
-            ask_who.RemoveMark("ThreatenEmperorExtraTurn");
-            if (room.AskForCard(ask_who, Name, "..", "@threaten_emperor", data, Name) != null)
-                return info;
-            return new TriggerStruct();
-        }
-        public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
-        {
-            LogMessage l = new LogMessage
-            {
-                Type = "#Fangquan",
-                To = new List<string> { ask_who.Name }
-            };
-            room.SendLog(l);
-            room.GainAnExtraTurn(ask_who);
-            return false;
-        }
-    }
-    */
-    public class ImperialOrder : GlobalEffect
-    {
-        public ImperialOrder() : base("ImperialOrder") { }
+        public static string ClassName = "Edict";
+        public Edict() : base(ClassName) { }
         public override bool IsAvailable(Room room, Player player, WrappedCard card)
         {
             bool canUse = false;
@@ -1436,8 +1480,18 @@ namespace SanguoshaServer.Game
                         Arg2 = Name
                     };
                     room.SendLog(log);
-
-                    room.BroadcastSkillInvoke(skill.Name, p);
+                    if (RoomLogic.PlayerHasShownSkill(room, p, skill))
+                    {
+                        room.NotifySkillInvoked(p, skill.Name);
+                        GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, p, skill.Name);
+                        string genral = gsk.General;
+                        int skin_id = gsk.SkinId;
+                        string skill_name = skill.Name;
+                        int audio = -1;
+                        skill.GetEffectIndex(room, p, card_use.Card, ref audio, ref skill_name, ref genral, ref skin_id);
+                        if (audio >= -1)
+                            room.BroadcastSkillInvoke(skill_name, "male", audio, genral, skin_id);
+                    }
                 }
                 else
                     targets.Add(p);
@@ -1449,19 +1503,17 @@ namespace SanguoshaServer.Game
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
-            room.SetCardFlag(card_use.Card, "imperial_order_normal_use");
+            room.SetCardFlag(card_use.Card, "edict_normal_use");
             base.Use(room, card_use);
         }
         public override void OnEffect(Room room, CardEffectStruct effect)
         {
-            if (room.AskForCard(effect.To, Name, "EquipCard", "@imperial_order-equip") != null)
+            if (room.AskForCard(effect.To, Name, "EquipCard", "@edict-equip") != null)
                 return;
-            List<string> choices = new List<string>();
-            if (!effect.To.HasShownAllGenerals()
-                && ((!effect.To.General1Showed && effect.To.DisableShowList(true).Count == 0)
-                || (!string.IsNullOrEmpty(effect.To.General2) && !effect.To.General2Showed && effect.To.DisableShowList(false).Count == 0)))
+            List<string> choices = new List<string> { "losehp" };
+            if (!effect.To.HasShownAllGenerals() && ((!effect.To.General1Showed && effect.To.CanShowGeneral("h"))
+                || (!string.IsNullOrEmpty(effect.To.General2) && !!effect.To.General2Showed && effect.To.CanShowGeneral("d"))))
                 choices.Add("show");
-            choices.Add("losehp");
             string choice = room.AskForChoice(effect.To, Name, string.Join("+", choices));
             if (choice == "show")
             {
@@ -1479,7 +1531,7 @@ namespace SanguoshaServer.Game
     /*
     public class TransferCard : SkillCard
     {
-        public TransferCard() : base("TransferCard")
+        public TransferCard() : base(TransferCard.ClassName)
         {
             will_throw = false;
         }
@@ -1496,7 +1548,7 @@ namespace SanguoshaServer.Game
         public override void OnEffect(Room room, CardEffectStruct effect)
         {
             bool draw = effect.To.HasShownOneGeneral();
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, effect.From.Name, effect.To.Name, "transfer", null);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, effect.From.Name, effect.To.Name, "transfer", null);
             room.ObtainCard(effect.To, effect.Card, reason);
             if (draw)
                 room.DrawCards(effect.From, 1, "transfer");
@@ -1508,7 +1560,8 @@ namespace SanguoshaServer.Game
     #region new
     public class TransferCard : SkillCard
     {
-        public TransferCard() : base("TransferCard")
+        public static string ClassName = "TransferCard";
+        public TransferCard() : base(ClassName)
         {
             will_throw = false;
         }
@@ -1526,7 +1579,7 @@ namespace SanguoshaServer.Game
         {
             effect.From.SetFlags("transfer");
             bool draw = effect.To.HasShownOneGeneral();
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, effect.From.Name, effect.To.Name, "transfer", null);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, effect.From.Name, effect.To.Name, "transfer", null);
             room.ObtainCard(effect.To, effect.Card, reason);
             if (draw)
                 room.DrawCards(effect.From, effect.Card.SubCards.Count, "transfer");
@@ -1553,8 +1606,9 @@ namespace SanguoshaServer.Game
         {
             if (cards.Count > 0)
             {
-                WrappedCard card = new WrappedCard("TransferCard")
+                WrappedCard card = new WrappedCard(TransferCard.ClassName)
                 {
+                    Skill = Name,
                     Mute = true
                 };
                 card.AddSubCards(cards);

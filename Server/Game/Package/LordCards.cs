@@ -1,5 +1,4 @@
-﻿using CommonClass;
-using CommonClass.Game;
+﻿using CommonClass.Game;
 using SanguoshaServer.Game;
 using System.Collections.Generic;
 
@@ -23,26 +22,24 @@ namespace SanguoshaServer.Package
                 new PeaceSpellSkill(),
                 new PeaceSpellSkillMaxCards(),
                 new LuminouSpearlSkill(),
-                new ZhihengVH(),
+                //new ZhihengVH(),
                 new DragonCarriageSkill(),
                 new DragonCarriageDistanceSkill()
             };
         }
     }
-}
 
-namespace SanguoshaServer.Game
-{
     public class DragonPhoenix : Weapon
     {
-        public DragonPhoenix() : base("DragonPhoenix", 2)
+        public static string ClassName = "DragonPhoenix";
+        public DragonPhoenix() : base(ClassName, 2)
         {
         }
     }
 
     public class DragonPhoenixSkill : WeaponSkill
     {
-        public DragonPhoenixSkill() : base("DragonPhoenix")
+        public DragonPhoenixSkill() : base(DragonPhoenix.ClassName)
         {
             events = new List<TriggerEvent> { TriggerEvent.TargetChosen, TriggerEvent.Dying };
         }
@@ -63,7 +60,7 @@ namespace SanguoshaServer.Game
                         return new TriggerStruct(Name, player, targets);
                 }
             }
-            else if (triggerEvent == TriggerEvent.Dying && data is DyingStruct dying && dying.Damage.Card != null && dying.Damage.Card.Name.Contains("Slash")
+            else if (triggerEvent == TriggerEvent.Dying && data is DyingStruct dying && dying.Damage.Card != null && dying.Damage.Card.Name.Contains(Slash.ClassName)
                 && !dying.Damage.Transfer && !dying.Damage.Chain
                 && dying.Damage.From != null && dying.Damage.From.Alive && base.Triggerable(dying.Damage.From, room) && !player.IsKongcheng())
             {
@@ -80,7 +77,11 @@ namespace SanguoshaServer.Game
                 invoke = true;
             else if (triggerEvent == TriggerEvent.Dying && data is DyingStruct dying && dying.Damage.From != null
                 && dying.Damage.From.Alive && !player.IsKongcheng() && RoomLogic.CanGetCard(room, ask_who, player, "h"))
-                invoke = true;
+            {
+                ask_who.SetFlags(Name);
+                invoke = room.AskForSkillInvoke(ask_who, Name, player);
+                ask_who.SetFlags("-DragonPhoenix");
+            }
 
             if (invoke)
             {
@@ -96,9 +97,8 @@ namespace SanguoshaServer.Game
                 room.AskForDiscard(player, Name, 1, 1, false, true, "@dragonphoenix-discard");
             else if (data is DyingStruct dying && dying.Damage.From != null && dying.Damage.From.Alive && !player.IsKongcheng() && RoomLogic.CanGetCard(room, ask_who, player, "h"))
             {
-                room.SendCompulsoryTriggerLog(ask_who, Name, false);
                 int id = room.AskForCardChosen(ask_who, player, "h", Name, false, FunctionCard.HandlingMethod.MethodGet);
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, ask_who.Name, Name, Name);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, ask_who.Name, Name, Name);
                 room.ObtainCard(ask_who, room.GetCard(id), reason, false);
             }
 
@@ -109,7 +109,7 @@ namespace SanguoshaServer.Game
     /*
     public class DragonPhoenixSkill : WeaponSkill
     {
-        public DragonPhoenixSkill() : base("DragonPhoenix")
+        public DragonPhoenixSkill() : base(DragonPhoenix.ClassName)
         {
             events.Add(TriggerEvent.TargetChosen);
         }
@@ -162,13 +162,13 @@ namespace SanguoshaServer.Game
 
             Player dfowner = null;
             foreach (Player p in room.GetAlivePlayers()) {
-                if (p.HasWeapon("DragonPhoenix"))
+                if (p.HasWeapon(DragonPhoenix.ClassName))
                 {
                     dfowner = p;
                     break;
                 }
             }
-            if (dfowner == null || !dfowner.HasShownOneGeneral() || dfowner.Role == "careerist")
+            if (dfowner == null || !dfowner.HasShownOneGeneral() || dfowner.GetRoleEnum() == Player.PlayerRole.Careerist)
                 return false;
 
             DeathStruct death = (DeathStruct)data;
@@ -206,7 +206,7 @@ namespace SanguoshaServer.Game
             if (avaliable_generals.Count == 0)
                 return false;
 
-            bool invoke = room.AskForSkillInvoke(dfowner, "DragonPhoenix", data) && room.AskForSkillInvoke(player, "DragonPhoenix", "#DragonPhoenix-revive:::" + dfowner.Kingdom);
+            bool invoke = room.AskForSkillInvoke(dfowner, DragonPhoenix.ClassName, data) && room.AskForSkillInvoke(player, DragonPhoenix.ClassName, "#DragonPhoenix-revive:::" + dfowner.Kingdom);
 
             if (invoke)
             {
@@ -233,7 +233,7 @@ namespace SanguoshaServer.Game
                     };
                     room.SendLog(l);
 
-                    room.DrawCards(player, 1, "DragonPhoenix");
+                    room.DrawCards(player, 1, DragonPhoenix.ClassName);
                 }
             }
             return false;
@@ -242,8 +242,9 @@ namespace SanguoshaServer.Game
     */
 
     public class PeaceSpell : Armor
-    { 
-        public PeaceSpell() : base("PeaceSpell") { }
+    {
+        public static string ClassName = "PeaceSpell";
+        public PeaceSpell() : base(ClassName) { }
         public override void OnUninstall(Room room, Player player, WrappedCard card)
         {
             if (player.Alive && RoomLogic.HasArmorEffect(room, player, Name, false))
@@ -253,17 +254,17 @@ namespace SanguoshaServer.Game
     }
     public class PeaceSpellSkill : ArmorSkill
     {
-        public PeaceSpellSkill() : base("PeaceSpell")
+        public PeaceSpellSkill() : base(PeaceSpell.ClassName)
         {
-            events = new List<TriggerEvent> { TriggerEvent.DamageInflicted, TriggerEvent.CardsMoveOneTime };
+            events = new List<TriggerEvent> { TriggerEvent.DamageDefined, TriggerEvent.CardsMoveOneTime };
             frequency = Frequency.Compulsory;
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (triggerEvent == TriggerEvent.DamageInflicted && data is DamageStruct damage)
+            if (triggerEvent == TriggerEvent.DamageDefined && data is DamageStruct damage && base.Triggerable(player, room) && damage.Nature != DamageStruct.DamageNature.Normal)
             {
-                if (base.Triggerable(player, room) && damage.Nature != DamageStruct.DamageNature.Normal)
-                    return new TriggerStruct(Name, player);
+                if (player.ArmorIsNullifiedBy(damage.From)) return new TriggerStruct();
+                return new TriggerStruct(Name, player);
             }
             else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.From != null
                 && move.From_places.Contains(Player.Place.PlaceEquip) && move.From.HasFlag("peacespell_throwing"))
@@ -273,11 +274,18 @@ namespace SanguoshaServer.Game
                     if (move.From_places[i] != Player.Place.PlaceEquip) continue;
                     WrappedCard card = Engine.GetRealCard(move.Card_ids[i]);
                     if (card.Name == Name)
+                    {
+                        Player source = room.FindPlayer(move.Reason.PlayerId);
+                        if (move.From.ArmorIsNullifiedBy(source))
+                        {
+                            move.From.SetFlags("-peacespell_throwing");
+                            return new TriggerStruct();
+                        }
+
                         return new TriggerStruct(Name, move.From);
+                    }
                 }
             }
-            else if (triggerEvent == TriggerEvent.QuitDying && player.HasFlag("peacespell_dying") && player.Alive)
-                return new TriggerStruct(Name, player);
 
             return new TriggerStruct();
         }
@@ -288,23 +296,16 @@ namespace SanguoshaServer.Game
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (triggerEvent == TriggerEvent.DamageInflicted && data is DamageStruct damage)
+            if (triggerEvent == TriggerEvent.DamageDefined && data is DamageStruct damage)
             {
-                LogMessage l = new LogMessage
+                LogMessage log = new LogMessage
                 {
-                    Type = "#PeaceSpellNatureDamage",
-                    From = damage.From.Name,
-                    To = new List<string> { damage.To.Name },
-                    Arg = damage.Damage.ToString()
+                    Type = "#damaged-prevent",
+                    From = player.Name,
+                    Arg = Name
                 };
-                switch (damage.Nature)
-                {
-                    case DamageStruct.DamageNature.Normal: l.Arg2 = "normal_nature"; break;
-                    case DamageStruct.DamageNature.Fire: l.Arg2 = "fire_nature"; break;
-                    case DamageStruct.DamageNature.Thunder: l.Arg2 = "thunder_nature"; break;
-                }
+                room.SendLog(log);
 
-                room.SendLog(l);
                 room.SetEmotion(damage.To, "peacespell");
                 return true;
             }
@@ -333,7 +334,7 @@ namespace SanguoshaServer.Game
         }
         public override int GetExtra(Room room, Player target)
         {
-            if (RoomLogic.HasArmorEffect(room, target, "PeaceSpell"))
+            if (RoomLogic.HasArmorEffect(room, target, PeaceSpell.ClassName))
             {
                 int count = 1;
                 foreach (Player p in room.GetOtherPlayers(target))
@@ -348,150 +349,23 @@ namespace SanguoshaServer.Game
             return 0;
         }
     }
-    /*
-    public class PeaceSpellSkill : ArmorSkill
-    {
-        public PeaceSpellSkill() : base("PeaceSpell")
-        {
-            events = new List<TriggerEvent> { TriggerEvent.DamageInflicted, TriggerEvent.CardsMoveOneTime, TriggerEvent.QuitDying };
-            frequency = Frequency.Compulsory;
-        }
-        public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
-        {
-            if (triggerEvent == TriggerEvent.DamageInflicted && data is DamageStruct damage)
-            {
-                if (base.Triggerable(player, room) && damage.Nature != DamageStruct.DamageNature.Normal)
-                    return new TriggerStruct(Name, player);
-            }
-            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.From != null
-                && move.From_places.Contains(Player.Place.PlaceEquip) && move.From.HasFlag("peacespell_throwing"))
-            {
-                for (int i = 0; i < move.Card_ids.Count; i++)
-                {
-                    if (move.From_places[i] != Player.Place.PlaceEquip) continue;
-                    WrappedCard card = Engine.GetRealCard(move.Card_ids[i]);
-                    if (card.Name == Name)
-                        return new TriggerStruct(Name, move.From);
-                }
-            }
-            else if (triggerEvent == TriggerEvent.QuitDying && player.HasFlag("peacespell_dying") && player.Alive)
-                return new TriggerStruct(Name, player);
-
-            return new TriggerStruct();
-        }
-        public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
-        {
-            if (triggerEvent ==  TriggerEvent.CardsMoveOneTime || triggerEvent == TriggerEvent.QuitDying) return info;
-            return base.Cost(room, ref data, info);
-        }
-        public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
-        {
-            if (triggerEvent == TriggerEvent.DamageInflicted && data is DamageStruct damage)
-            {
-                LogMessage l = new LogMessage
-                {
-                    Type = "#PeaceSpellNatureDamage",
-                    From = damage.From.Name,
-                    To = new List<string> { damage.To.Name },
-                    Arg = damage.Damage.ToString()
-                };
-                switch (damage.Nature)
-                {
-                    case DamageStruct.DamageNature.Normal: l.Arg2 = "normal_nature"; break;
-                    case DamageStruct.DamageNature.Fire: l.Arg2 = "fire_nature"; break;
-                    case DamageStruct.DamageNature.Thunder: l.Arg2 = "thunder_nature"; break;
-                }
-
-                room.SendLog(l);
-                room.SetEmotion(damage.To, "peacespell");
-                return true;
-            }
-            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move)
-            {
-                move.From.SetFlags("-peacespell_throwing");
-
-                if (move.From.HasFlag("Global_Dying"))
-                    move.From.SetFlags("peacespell_dying");
-                else
-                {
-                    LogMessage l = new LogMessage
-                    {
-                        Type = "#PeaceSpellLost",
-                        From = move.From.Name
-                    };
-                    room.SendLog(l);
-
-                    room.LoseHp(move.From);
-                    if (move.From.Alive)
-                        room.DrawCards(move.From, 2, Name);
-                }
-            }
-            else
-            {
-                player.SetFlags("-peacespell_dying");
-                LogMessage l = new LogMessage
-                {
-                    Type = "#PeaceSpellLost",
-                    From = player.Name
-                };
-                room.SendLog(l);
-
-                room.LoseHp(player);
-                if (player.Alive)
-                    room.DrawCards(player, 2, Name);
-            }
-            return false;
-        }
-    }
-    public class PeaceSpellSkillMaxCards : MaxCardsSkill
-    {
-        public PeaceSpellSkillMaxCards() : base("#PeaceSpell-max")
-        {
-        }
-        public override int GetExtra(Room room, Player target)
-        {
-            if (!target.HasShownOneGeneral())
-                return 0;
-
-            List<Player> targets = room.GetAlivePlayers();
-
-            Player ps_owner = null;
-            foreach (Player p in targets) {
-                if (RoomLogic.HasArmorEffect(room, p, "PeaceSpell"))
-                {
-                    ps_owner = p;
-                    break;
-                }
-            }
-
-            if (ps_owner == null)
-                return 0;
-
-            if (RoomLogic.IsFriendWith(room, target ,ps_owner))
-                return RoomLogic.GetPlayerNumWithSameKingdom(room, ps_owner) + ps_owner.GetPile("heavenly_army").Count;
-
-            return 0;
-        }
-        
-    }
-    */
+    
     public class LuminouSpearl : Treasure
     {
-        public LuminouSpearl() : base("LuminouSpearl")
+        public static string ClassName = "LuminouSpearl";
+        public LuminouSpearl() : base(ClassName)
         {
         }
         public override void OnUninstall(Room room, Player player, WrappedCard card)
         {
-            if (!player.GetAcquiredSkills().Contains("zhiheng") && (!player.OwnSkill("zhiheng")
-                || ((!RoomLogic.InPlayerHeadSkills(player, "zhiheng") || !player.General1Showed)
-                && (!RoomLogic.InPlayerDeputykills(player, "zhiheng") || !player.General2Showed))))
+            if (!RoomLogic.PlayerHasShownSkill(room, player, "zhiheng"))
                 player.ClearHistory("ZhihengCard");
             base.OnUninstall(room, player, card);
         }
     }
     public class LuminouSpearlSkill : ViewAsSkill
     {
-        public LuminouSpearlSkill() : base("LuminouSpearl")
+        public LuminouSpearlSkill() : base(LuminouSpearl.ClassName)
         {
         }
         public override bool ViewFilter(Room room, List<WrappedCard> selected, WrappedCard to_select, Player player)
@@ -503,20 +377,22 @@ namespace SanguoshaServer.Game
             if (cards.Count == 0)
                 return null;
 
-            WrappedCard zhiheng_card = new WrappedCard("ZhihengCard");
+            WrappedCard zhiheng_card = new WrappedCard("ZhihengCard")
+            {
+                Skill = "zhiheng",
+                Mute = true
+            };
             zhiheng_card.AddSubCards(cards);
-            zhiheng_card.Skill = "zhiheng";
             return zhiheng_card;
         }
         public override bool IsEnabledAtPlay(Room room, Player player)
         {
             return RoomLogic.CanDiscard(room, player, player, "he") && !player.HasUsed("ZhihengCard")
-                    && !player.GetAcquiredSkills().Contains("zhiheng") && (!player.OwnSkill("zhiheng")
-                        || !((RoomLogic.InPlayerHeadSkills(player, "zhiheng") && player.General1Showed)
-                        || (RoomLogic.InPlayerDeputykills(player, "zhiheng") && player.General2Showed)));
+                    && !RoomLogic.PlayerHasShownSkill(room, player, "zhiheng");
         }
     }
 
+    /*
     public class ZhihengVH : ViewHasSkill
     {
         public ZhihengVH() : base("zhiheng-viewhas")
@@ -524,19 +400,21 @@ namespace SanguoshaServer.Game
             global = true;
             viewhas_skills.Add("zhiheng");
         }
-        public override bool ViewHas(Room room, Player player, string skill_name) => player.HasTreasure("LuminouSpearl");
+        public override bool ViewHas(Room room, Player player, string skill_name) => player.HasTreasure(LuminouSpearl.ClassName);
     }
+    */
 
     public class DragonCarriage : SpecialEquip
     {
-        public DragonCarriage() : base("DragonCarriage")
+        public static string ClassName = "DragonCarriage";
+        public DragonCarriage() : base(ClassName)
         {
         }
     }
 
     public class DragonCarriageSkill : TriggerSkill
     {
-        public DragonCarriageSkill() : base("DragonCarriage")
+        public DragonCarriageSkill() : base(DragonCarriage.ClassName)
         {
             global = true;
             events = new List<TriggerEvent> { TriggerEvent.CardsMoveOneTime };

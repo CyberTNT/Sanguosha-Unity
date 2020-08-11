@@ -1,11 +1,12 @@
 ﻿using CommonClass.Game;
 using SanguoshaServer.Game;
+using SanguoshaServer.Package;
 using System;
 using System.Collections.Generic;
 using static CommonClass.Game.WrappedCard;
 namespace SanguoshaServer.AI
 {
-    class StrategicAdvantageCardsAI : AIPackage
+    public class StrategicAdvantageCardsAI : AIPackage
     {
         public StrategicAdvantageCardsAI() : base("StrategicAdvantageCardsAI")
         {
@@ -14,6 +15,7 @@ namespace SanguoshaServer.AI
                 new TransferAI(),
                 new WoodenAI(),
                 new JadeAI(),
+                new HalberdChooseAI(),
             };
 
             use_cards = new List<UseCard>
@@ -34,14 +36,15 @@ namespace SanguoshaServer.AI
                 new FightTogetherAI(),
                 new AllianceFeastAI(),
                 new ThreatenEmperorAI(),
-                new ImperialOrderAI(),
+                new EdictAI(),
+                new DHorseAI("Jingfan"),
             };
         }
     }
 
     public class TransferCardAI : UseCard
     {
-        public TransferCardAI() : base("TransferCard")
+        public TransferCardAI() : base(TransferCard.ClassName)
         {
         }
 
@@ -59,7 +62,7 @@ namespace SanguoshaServer.AI
         {
             Room room = ai.Room;
             List<int> ids = new List<int>();
-            foreach (int id in player.HandCards)
+            foreach (int id in player.GetCards("h"))
             {
                 WrappedCard c = room.GetCard(id);
                 if (c.Transferable)
@@ -114,13 +117,13 @@ namespace SanguoshaServer.AI
                 }
 
                 List<int> cards = new List<int>();
-                bool oneJink = ai.HasSkill("kongcheng");
+                bool oneJink = ai.HasSkill("kongcheng|kongcheng_jx");
                 foreach (int id in ids)
                 {
-                    if (!ai.IsCard(id, "Peach", player) || friend.Count > 0)
+                    if (!ai.IsCard(id, Peach.ClassName, player) || friend.Count > 0)
                     {
                         bool insert = true;
-                        if (!oneJink && ai.IsCard(id, "Jink", player))
+                        if (!oneJink && ai.IsCard(id, Jink.ClassName, player))
                         {
                             oneJink = true;
                             insert = false;
@@ -167,7 +170,7 @@ namespace SanguoshaServer.AI
                 foreach (int id in cards)
                 {
                     WrappedCard c = room.GetCard(id);
-                    if (c.Name == "ThreatenEmperor")
+                    if (c.Name == ThreatenEmperor.ClassName)
                     {
                         FunctionCard fcard = Engine.GetFunctionCard(c.Name);
                         if (fcard.IsAvailable(room, player, c))
@@ -201,7 +204,7 @@ namespace SanguoshaServer.AI
                         int maxNum = 0;
                         if (big_kingdom != string.Empty)
                         {
-                            if (big_kingdom.StartsWith("sgs"))
+                            if (big_kingdom.StartsWith("SGS"))
                                 maxNum = 99;
                             else
                                 maxNum = RoomLogic.GetPlayerNumWithSameKingdom(room, player, big_kingdom);
@@ -211,7 +214,7 @@ namespace SanguoshaServer.AI
 
                         foreach (Player p in targets)
                         {
-                            if (p.HasShownOneGeneral() && p.Name != big_kingdom && (!big_kingdoms.Contains(p.Kingdom) || p.Role == "careerist")
+                            if (p.HasShownOneGeneral() && p.Name != big_kingdom && (!big_kingdoms.Contains(p.Kingdom) || p.GetRoleEnum() == Player.PlayerRole.Careerist)
                                 && (maxNum == 99 || RoomLogic.GetPlayerNumWithSameKingdom(room, p) + anjiang < maxNum))
                             {
                                 card.ClearSubCards();
@@ -222,7 +225,7 @@ namespace SanguoshaServer.AI
                             }
                         }
                     }
-                    else if (c.Name == "BurningCamps")
+                    else if (c.Name == BurningCamps.ClassName)
                     {
                         string gameProcess = ai.Process;
                         if (gameProcess.Contains(player.Kingdom + ">"))
@@ -244,12 +247,12 @@ namespace SanguoshaServer.AI
                             FunctionCard fcard = Engine.GetFunctionCard(c.Name);
                             foreach (Player p in targets)
                             {
-                                if (p.HasShownOneGeneral() && fcard.IsAvailable(room, p, c))
+                                if (p.HasShownOneGeneral() && fcard.IsAvailable(room, p, c) && !ai.GetPrioEnemies().Contains(p))
                                 {
                                     Player np = room.GetNextAlive(p);
                                     DamageStruct damage = new DamageStruct(c, p, np, 1, DamageStruct.DamageNature.Fire);
                                     damage.Damage = ai.DamageEffect(damage, DamageStruct.DamageStep.None);
-                                    if (!ai.IsFriend(np) && (!np.Chained || !ai.IsGoodSpreadStarter(damage, false)))
+                                    if (!ai.IsFriend(np) && (!np.Chained || ai.ChainDamage(damage) >= 0))
                                     {
                                         card.ClearSubCards();
                                         card.AddSubCard(id);
@@ -272,16 +275,16 @@ namespace SanguoshaServer.AI
         {
         }
 
-        public override WrappedCard GetTurnUse(TrustedAI ai, Player player)
+        public override List<WrappedCard> GetTurnUse(TrustedAI ai, Player player)
         {
             if (player.HasFlag(Name)) return null;
 
             Room room = ai.Room;
-            foreach (int id in player.HandCards)
+            foreach (int id in player.GetCards("h"))
             {
                 WrappedCard card = room.GetCard(id);
                 if (card.Transferable)
-                    return new WrappedCard("TransferCard");
+                    return new List<WrappedCard> { new WrappedCard(TransferCard.ClassName) { Skill = Name, Mute = true } };
             }
 
             return null;
@@ -292,11 +295,14 @@ namespace SanguoshaServer.AI
     //装备
     public class BladeAI : UseCard
     {
-        public BladeAI() : base("Blade")
+        public BladeAI() : base(Blade.ClassName)
         {
         }
-
-        public override double CardValue(TrustedAI ai, Player player, WrappedCard card, Player.Place place)
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
+        public override double CardValue(TrustedAI ai, Player player, bool use, WrappedCard card, Player.Place place)
         {
             double value = ai.AjustWeaponRangeValue(player, card);
             foreach (Player p in ai.Room.GetOtherPlayers(player))
@@ -316,17 +322,20 @@ namespace SanguoshaServer.AI
 
     public class HalberdAI : UseCard
     {
-        public HalberdAI() : base("Halberd")
+        public HalberdAI() : base(Halberd.ClassName)
         {
         }
-
-        public override double CardValue(TrustedAI ai, Player player, WrappedCard card, Player.Place place)
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
+        public override double CardValue(TrustedAI ai, Player player, bool use, WrappedCard card, Player.Place place)
         {
             double value = ai.AjustWeaponRangeValue(player, card);
             List<string> kingdoms = new List<string>();
             foreach (Player p in ai.Room.GetOtherPlayers(player))
             {
-                if (ai.IsEnemy(p) && (!p.HasShownOneGeneral() || p.Role == "careerist" || !kingdoms.Contains(p.Kingdom)))
+                if (ai.IsEnemy(p) && (!p.HasShownOneGeneral() || p.GetRoleEnum() == Player.PlayerRole.Careerist || !kingdoms.Contains(p.Kingdom)))
                 {
                     if (p.HasShownOneGeneral() && p.Role != "careerist")
                         kingdoms.Add(p.Kingdom);
@@ -346,7 +355,7 @@ namespace SanguoshaServer.AI
 
     public class HalberdChooseAI : SkillEvent
     {
-        public HalberdChooseAI() : base("Halberd")
+        public HalberdChooseAI() : base(Halberd.ClassName)
         {
         }
 
@@ -363,9 +372,10 @@ namespace SanguoshaServer.AI
                     kingdoms.Add(p.Kingdom);
             }
 
-            foreach (Player p in room.GetAlivePlayers())
+            foreach (Player p in room.GetOtherPlayers(player))
             {
-                if (p != player && (p.HasShownOneGeneral() && p.Role != "careerist" && !kingdoms.Contains(p.Kingdom) || !p.HasShownOneGeneral()))
+                if (use.To.Contains(p)) continue;
+                if (!p.HasShownOneGeneral() || p.GetRoleEnum() == Player.PlayerRole.Careerist || !kingdoms.Contains(p.Kingdom))
                     targets.Add(p);
             }
 
@@ -374,35 +384,36 @@ namespace SanguoshaServer.AI
             while (target != null)
             {
                 result.Add(target);
-                use.To.Add(target);
+                if (target.HasShownOneGeneral() && target.Role != "careerist")
+                    kingdoms.Add(target.Kingdom);
+
+                target = null;
                 targets.Clear();
-                kingdoms.Clear();
 
-                foreach (Player p in use.To)
+                foreach (Player p in room.GetOtherPlayers(player))
                 {
-                    if (p.HasShownOneGeneral() && p.Role != "careerist")
-                        kingdoms.Add(p.Kingdom);
-                }
-
-                foreach (Player p in room.GetAlivePlayers())
-                {
-                    if (p != player && (p.HasShownOneGeneral() && p.Role != "careerist" && !kingdoms.Contains(p.Kingdom) || !p.HasShownOneGeneral()))
+                    if (use.To.Contains(p) || result.Contains(p)) continue;
+                    if (!p.HasShownOneGeneral() || p.GetRoleEnum() == Player.PlayerRole.Careerist || !kingdoms.Contains(p.Kingdom))
                         targets.Add(p);
                 }
 
                 if (targets.Count == 0) return result;
-                target = ai.AddExtraSlashTarget(targets, use);
+                target = ai.AddExtraSlashTarget(targets, use, result);
             }
+
             return result;
         }
     }
 
     public class BreastPlateAI : UseCard
     {
-        public BreastPlateAI() : base("BreastPlate")
+        public BreastPlateAI() : base(BreastPlate.ClassName)
         { }
-
-        public override double CardValue(TrustedAI ai, Player player, WrappedCard card, Player.Place place)
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
+        public override double CardValue(TrustedAI ai, Player player, bool use, WrappedCard card, Player.Place place)
         {
             double value = 0;
             if (ai.IsWeak(player))
@@ -426,10 +437,13 @@ namespace SanguoshaServer.AI
 
     public class IronArmorAI : UseCard
     {
-        public IronArmorAI() : base("IronArmor")
+        public IronArmorAI() : base(IronArmor.ClassName)
         {
         }
-        
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
         {
             ai.UseEquipCard(ref use, card);
@@ -438,8 +452,15 @@ namespace SanguoshaServer.AI
 
     public class WoodenOxCardAI : UseCard
     {
-        public WoodenOxCardAI() : base("WoodenOxCard")
+        public WoodenOxCardAI() : base(WoodenOxCard.ClassName)
         {
+        }
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            if (ai.HasSkill(TrustedAI.LoseEquipSkill, player) && ai.GetFriends(player).Count > 1)
+                return 6;
+
+            return 2;
         }
 
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
@@ -450,11 +471,11 @@ namespace SanguoshaServer.AI
 
     public class WoodenAI : SkillEvent
     {
-        public WoodenAI() : base("WoodenOx")
+        public WoodenAI() : base(WoodenOx.ClassName)
         {
-            key = new List<string> { "playerChosen" };
+            key = new List<string> { "playerChosen:WoodenOx" };
         }
-
+        
         public override void OnEvent(TrustedAI ai, TriggerEvent triggerEvent, Player player, object data)
         {
             if (triggerEvent == TriggerEvent.ChoiceMade && data is string choice && ai.Self != player)
@@ -464,11 +485,8 @@ namespace SanguoshaServer.AI
                 {
                     string name = choices[2];
                     Player to = ai.Room.FindPlayer(name);
-                    if (to != null)
-                    {
-                        if (ai.GetPossibleId(player).Count == 1 && ai.GetPlayerTendency(to) == "unknown" && ai.IsKnown(player, to) && !to.HasShownOneGeneral())
-                            ai.UpdatePlayerRelation(player, to, true);
-                    }
+                    if (to != null && ai.IsKnown(player, to))
+                        ai.UpdatePlayerRelation(player, to, true);
                 }
             }
         }
@@ -481,12 +499,73 @@ namespace SanguoshaServer.AI
             return new List<Player>();
         }
 
-        public override WrappedCard GetTurnUse(TrustedAI ai, Player player)
+        public override List<WrappedCard> GetTurnUse(TrustedAI ai, Player player)
         {
             Room room = ai.Room;
             ai.Target[Name] = null;
-            if (player.HasUsed("WoodenOxCard") || player.IsKongcheng()) return null;
-            List<int> cards = new List<int>(player.HandCards);
+            if (player.HasUsed(WoodenOxCard.ClassName) || player.IsKongcheng()) return null;
+            List<int> cards= player.GetCards("h");
+
+            int sub = -1;
+            foreach (int id in cards)
+            {
+                WrappedCard card = room.GetCard(id);
+                if (card.Name == DragonPhoenix.ClassName)
+                {
+                    Player target = null;
+                    foreach (Player p in room.GetOtherPlayers(player))
+                    {
+                        if (ai.HasSkill("zhangwu", p))
+                        {
+                            target = p;
+                            break;
+                        }
+                    }
+
+                    if (target != null && !ai.IsFriend(target, player) || !ai.HasSkill(TrustedAI.LoseEquipSkill, player))
+                    {
+                        sub = id;
+                        break;
+                    }
+                }
+                else if (card.Name == PeaceSpell.ClassName)
+                {
+                    Player target = null;
+                    foreach (Player p in room.GetOtherPlayers(player))
+                    {
+                        if (ai.HasSkill("wendao", p))
+                        {
+                            target = p;
+                            break;
+                        }
+                    }
+                    
+                    if (target != null && !ai.IsFriend(target, player))
+                    {
+                        sub = id;
+                        break;
+                    }
+                }
+                else if (card.Name == LuminouSpearl.ClassName)
+                {
+                    Player target = null;
+                    foreach (Player p in room.GetOtherPlayers(player))
+                    {
+                        if (ai.HasSkill("jubao", p))
+                        {
+                            target = p;
+                            break;
+                        }
+                    }
+
+                    if (target != null && !ai.IsFriend(target, player))
+                    {
+                        sub = id;
+                        break;
+                    }
+                }
+            }
+
             ai.SortByUseValue(ref cards);
             bool keep = false;
             if (ai.HasSkill("jijiu"))
@@ -505,10 +584,8 @@ namespace SanguoshaServer.AI
             {
                 List<Player> targets = new List<Player>();
                 foreach (Player p in ai.FriendNoSelf)
-                {
-                    if (p.Treasure.Key == -1)
+                    if (RoomLogic.CanPutEquip(p, room.GetCard(player.Treasure.Key)) && ai.GetSameEquip(room.GetCard(player.Treasure.Key), p) == null)
                         targets.Add(p);
-                }
 
                 Player next = null;
                 room.SortByActionOrder(ref targets);
@@ -522,22 +599,48 @@ namespace SanguoshaServer.AI
                 }
                 if (next != null)
                 {
-                    KeyValuePair<Player, int> result = ai.GetCardNeedPlayer(cards, new List<Player> { next });
-                    if (result.Key != null)
+                    if (sub != -1)
                     {
                         ai.Target[Name] = next;
-                        WrappedCard card = new WrappedCard("WoodenOxCard");
-                        card.AddSubCard(result.Value);
-                        return card;
+                        WrappedCard card = new WrappedCard(WoodenOxCard.ClassName) { Skill = Name };
+                        card.AddSubCard(sub);
+                        return new List<WrappedCard> { card };
+                    }
+                    else
+                    {
+                        KeyValuePair<Player, int> result = ai.GetCardNeedPlayer(cards, new List<Player> { next });
+                        if (result.Key != null)
+                        {
+                            ai.Target[Name] = next;
+                            WrappedCard card = new WrappedCard(WoodenOxCard.ClassName) { Skill = Name };
+                            card.AddSubCard(result.Value);
+                            return new List<WrappedCard> { card };
+                        }
                     }
                 }
                 else if (ai.HasSkill(TrustedAI.LoseEquipSkill) && targets.Count > 0)
                 {
-                    ai.Target[Name] = targets[0];
-                    ai.SortByUseValue(ref cards, false);
-                    WrappedCard card = new WrappedCard("WoodenOxCard");
-                    card.AddSubCard(cards[0]);
-                    return card;
+                    if (sub != -1)
+                    {
+                        ai.Target[Name] = targets[0];
+                        WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                        {
+                            Skill = Name
+                        };
+                        card.AddSubCard(sub);
+                        return new List<WrappedCard> { card };
+                    }
+                    else
+                    {
+                        ai.Target[Name] = targets[0];
+                        ai.SortByUseValue(ref cards, false);
+                        WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                        {
+                            Skill = Name
+                        };
+                        card.AddSubCard(cards[0]);
+                        return new List<WrappedCard> { card };
+                    }
                 }
                 else if (targets.Count > 0)
                 {
@@ -548,23 +651,57 @@ namespace SanguoshaServer.AI
                             weaks.Add(p);
                     }
 
+                    if (sub != -1 && weaks.Count > 0)
+                    {
+                        ai.SortByDefense(ref weaks, false);
+                        ai.Target[Name] = weaks[0]; WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                        {
+                            Skill = Name
+                        };
+                        card.AddSubCard(sub);
+                        return new List<WrappedCard> { card };
+                    }
+
                     KeyValuePair<Player, int> result = ai.GetCardNeedPlayer(cards, weaks);
                     if (result.Key != null)
                     {
                         ai.Target[Name] = result.Key;
-                        WrappedCard card = new WrappedCard("WoodenOxCard");
+                        WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                        {
+                            Skill = Name
+                        };
                         card.AddSubCard(result.Value);
-                        return card;
+                        return new List<WrappedCard> { card };
                     }
                 }
             }
 
             if (ai.GetOverflow(player) > 0)
             {
-                ai.SortByKeepValue(ref cards, false);
-                WrappedCard card = new WrappedCard("WoodenOxCard");
-                card.AddSubCard(cards[0]);
-                return card;
+                WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                {
+                    Skill = Name
+                };
+                if (sub != -1)
+                {
+                    card.AddSubCard(sub);
+                }
+                else
+                {
+                    ai.SortByKeepValue(ref cards, false);
+                    card.AddSubCard(cards[ai.GetOverflow(player) - 1]);
+                }
+                return new List<WrappedCard> { card };
+            }
+
+            if (player.HandcardNum == 1 && ai.HasSkill("kongcheng"))
+            {
+                WrappedCard card = new WrappedCard(WoodenOxCard.ClassName)
+                {
+                    Skill = Name
+                };
+                card.AddSubCards(player.GetCards("h"));
+                return new List<WrappedCard> { card };
             }
 
             return null;
@@ -573,11 +710,15 @@ namespace SanguoshaServer.AI
 
     public class WoodenOxAI : UseCard
     {
-        public WoodenOxAI() : base("WoodenOx")
+        public WoodenOxAI() : base(WoodenOx.ClassName)
         {
         }
 
-        public override double CardValue(TrustedAI ai, Player player, WrappedCard card, Player.Place place)
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
+        public override double CardValue(TrustedAI ai, Player player, bool use, WrappedCard card, Player.Place place)
         {
             double value = 0;
             value += player.GetPile("wooden_ox").Count * 0.3;
@@ -596,20 +737,20 @@ namespace SanguoshaServer.AI
 
     public class JadeAI : SkillEvent
     {
-        public JadeAI() : base("JadeSeal")
+        public JadeAI() : base(JadeSeal.ClassName)
         {
         }
 
         public override CardUseStruct OnResponding(TrustedAI ai, Player player, string pattern, string prompt, object data)
         {
-            WrappedCard kb = new WrappedCard("KnownBoth");
+            WrappedCard kb = new WrappedCard(KnownBoth.ClassName);
             CardUseStruct use = new CardUseStruct
             {
                 From = player,
                 IsDummy = true
             };
 
-            UseCard u = Engine.GetCardUsage("KnownBoth");
+            UseCard u = Engine.GetCardUsage(KnownBoth.ClassName);
             u.Use(ai, player, ref use, kb);
 
             return use;
@@ -618,11 +759,14 @@ namespace SanguoshaServer.AI
 
     public class JadeSealAI : UseCard
     {
-        public JadeSealAI() : base("JadeSeal")
+        public JadeSealAI() : base(JadeSeal.ClassName)
         {
         }
-
-        public override double CardValue(TrustedAI ai, Player player, WrappedCard card, Player.Place place)
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            return ai.GetEquipPriorityAdjust(card);
+        }
+        public override double CardValue(TrustedAI ai, Player player, bool use, WrappedCard card, Player.Place place)
         {
             double value = 0;
 
@@ -637,7 +781,7 @@ namespace SanguoshaServer.AI
 
     public class DrowningAI : UseCard
     {
-        public DrowningAI() : base("Drowning")
+        public DrowningAI() : base(Drowning.ClassName)
         {
         }
 
@@ -739,26 +883,82 @@ namespace SanguoshaServer.AI
             }
         }
 
-        public override NulliResult OnNullification(TrustedAI ai, Player from, Player to, WrappedCard trick, bool positive, bool keep)
+        public override NulliResult OnNullification(TrustedAI ai, CardEffectStruct effect, bool positive, bool keep)
         {
-            return base.OnNullification(ai, from, to, trick, positive, keep);
+            NulliResult result = new NulliResult();
+            Player from = effect.From, to = effect.To;
+            WrappedCard trick = effect.Card;
+            DamageStruct damage = new DamageStruct(effect.Card, from, to, 1, DamageStruct.DamageNature.Thunder);
+
+            ScoreStruct score = ai.GetDamageScore(damage);
+            if (positive)
+            {
+                if (score.Score < -4 && ai.IsFriend(to))
+                {
+                    double value = 0;
+                    List<int> ids = to.GetEquips();
+                    foreach (int id in ids)
+                        value += ai.GetKeepValue(id, to);
+
+                    if (value > Math.Abs(score.Score) && ai.IsWeak(to))
+                        result.Null = true;
+                }
+            }
+            else
+            {
+                if (score.Score > 6 && ai.IsEnemy(to))
+                {
+                    double value = 0;
+                    List<int> ids = to.GetEquips();
+                    foreach (int id in ids)
+                        value += ai.GetKeepValue(id, to);
+
+                    if (value > 6 && !keep)
+                        result.Null = true;
+                }
+            }
+
+            return result;
+        }
+
+        public override string OnChoice(TrustedAI ai, Player player, string choices, object data)
+        {
+            if (data is CardEffectStruct effect)
+            {
+                DamageStruct damage = new DamageStruct(effect.Card, effect.From, player, 1, DamageStruct.DamageNature.Thunder);
+                double value = 0;
+                List<int> ids = player.GetEquips();
+                foreach (int id in ids)
+                    value += ai.GetKeepValue(id, player);
+
+                ScoreStruct score = ai.GetDamageScore(damage, DamageStruct.DamageStep.None);
+                if (score.DoDamage && score.Damage.Damage >= player.Hp && !ai.CanResist(player, score.Damage.Damage)
+                    && ai.GetKnownCardsNums(Peach.ClassName, "he", player) + ai.GetKnownCardsNums(Analeptic.ClassName, "he", player) < score.Damage.Damage - player.Hp)
+                    return "throw";
+
+                if (score.Score > -value / 2)
+                    return "damage";
+            }
+
+            return "throw";
         }
     }
 
     public class BurningCampsAI : UseCard
     {
-        public BurningCampsAI() : base("BurningCamps")
+        public BurningCampsAI() : base(BurningCamps.ClassName)
         {
         }
 
-        public override NulliResult OnNullification(TrustedAI ai, Player from, Player to, WrappedCard trick, bool positive, bool keep)
+        public override NulliResult OnNullification(TrustedAI ai, CardEffectStruct effect, bool positive, bool keep)
         {
             NulliResult result = new NulliResult();
             Room room = ai.Room;
             Player player = ai.Self;
-
-            List<Player> targets = (List<Player>)room.GetTag("targets" + RoomLogic.CardToString(room, trick));
-            List<Player> delete = new List<Player>(targets);
+            Player from = effect.From, to = effect.To;
+            WrappedCard trick = effect.Card;
+            List<Player> delete = new List<Player>(effect.StackPlayers);
+            List<Player> targets = new List<Player>(delete);
             foreach (Player p in delete)
                 if (delete.IndexOf(p) < delete.IndexOf(to))
                     targets.Remove(p);
@@ -771,7 +971,7 @@ namespace SanguoshaServer.AI
 
                 DamageStruct damage = new DamageStruct(trick, from, to, 1, DamageStruct.DamageNature.Fire);
                 ScoreStruct score = ai.GetDamageScore(damage);
-                if (ai.IsGoodSpreadStarter(damage, false))
+                if (ai.ChainDamage(damage) < 0)
                 {
                     foreach (Player p in room.GetOtherPlayers(to))
                     {
@@ -829,17 +1029,10 @@ namespace SanguoshaServer.AI
                     DamageStruct damage = new DamageStruct(trick, from, p, 1, DamageStruct.DamageNature.Fire);
                     ScoreStruct score = ai.GetDamageScore(damage);
                     value = score.Score;
-                    if (!chained && ai.IsGoodSpreadStarter(damage))
+                    if (!chained && ai.IsSpreadStarter(damage))
                     {
                         chained = true;
-                        foreach (Player _p in room.GetOtherPlayers(p))
-                        {
-                            if (p.Chained)
-                            {
-                                DamageStruct _damage = new DamageStruct(trick, from, _p, 1, DamageStruct.DamageNature.Fire);
-                                value += ai.GetDamageScore(damage).Score;
-                            }
-                        }
+                        value += ai.ChainDamage(damage);
                     }
 
                     if (!isHegNullification)
@@ -868,7 +1061,7 @@ namespace SanguoshaServer.AI
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
         {
             Room room = ai.Room;
-            Player np = room.GetNextAlive(player, 1, false);
+            Player np = room.GetNextAlive(player, 1);
             if (ai.IsFriend(np)) return;
 
             List<Player> targets = RoomLogic.GetFormation(room, np);
@@ -878,7 +1071,7 @@ namespace SanguoshaServer.AI
                 bool damage_done = false;
                 foreach (Player p in targets)
                 {
-                    if (!ai.IsCancelTarget(card, p, player) && ai.IsCardEffect(card, p, player))
+                    if (!ai.IsCancelTarget(card, p, player) && ai.IsCardEffect(card, p, player) && RoomLogic.IsProhibited(room, player, p, card) == null)
                     {
                         DamageStruct damage = new DamageStruct(card, player, p, 1, DamageStruct.DamageNature.Fire);
                         ScoreStruct score = ai.GetDamageScore(damage);
@@ -888,18 +1081,25 @@ namespace SanguoshaServer.AI
                     }
                 }
 
-                if (value > 4)
+                int hand = 0;
+                foreach (int id in card.SubCards)
+                    if (room.GetCardPlace(id) == Player.Place.PlaceHand && room.GetCardOwner(id) == player)
+                        hand++;
+
+
+                if (value > 4 || (value > 0 && hand > 0 && hand <= ai.GetOverflow(player)))
                 {
                     if (damage_done)
                     {
                         CardUseStruct new_use = new CardUseStruct
                         {
                             From = player,
-                            IsDummy = true
+                            IsDummy = true,
+                            To = new List<Player>()
                         };
 
-                        List<WrappedCard> wrappeds = ai.GetCards("IronChain", player);
-                        UseCard ic = Engine.GetCardUsage("IronChain");
+                        List<WrappedCard> wrappeds = ai.GetCards(IronChain.ClassName, player);
+                        UseCard ic = Engine.GetCardUsage(IronChain.ClassName);
                         foreach (WrappedCard c in wrappeds)
                         {
                             ic.Use(ai, player, ref new_use, c);
@@ -907,8 +1107,8 @@ namespace SanguoshaServer.AI
                                 return;
                         }
 
-                        List<WrappedCard> _wrappeds = ai.GetCards("FightTogether", player);
-                        UseCard ft = Engine.GetCardUsage("FightTogether");
+                        List<WrappedCard> _wrappeds = ai.GetCards(FightTogether.ClassName, player);
+                        UseCard ft = Engine.GetCardUsage(FightTogether.ClassName);
                         foreach (WrappedCard c in _wrappeds)
                         {
                             ft.Use(ai, player, ref new_use, c);
@@ -924,21 +1124,21 @@ namespace SanguoshaServer.AI
 
     public class LureTigerAI : UseCard
     {
-        public LureTigerAI() : base("LureTiger")
+        public LureTigerAI() : base(LureTiger.ClassName)
         {
         }
         
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
         {
             Room room = ai.Room;
-            List<WrappedCard> cards = ai.GetCards("BurningCamps", player);
+            List<WrappedCard> cards = ai.GetCards(BurningCamps.ClassName, player);
             FunctionCard lure = Engine.GetFunctionCard(Name);
             List<Player> players = new List<Player>();
             if (cards.Count > 0)
             {
                 ai.SortByUseValue(ref cards);
                 WrappedCard burn = cards[0];
-                FunctionCard fcard = Engine.GetFunctionCard("BurningCamps");
+                FunctionCard fcard = Engine.GetFunctionCard(BurningCamps.ClassName);
                 if (fcard.IsAvailable(room, player, burn))
                 {
                     Player nextp = room.GetNextAlive(player);
@@ -978,12 +1178,12 @@ namespace SanguoshaServer.AI
             }
 
             players.Clear();
-            cards = ai.GetCards("ArcheryAttack", player);
+            cards = ai.GetCards(ArcheryAttack.ClassName, player);
             if (cards.Count > 0)
             {
                 ai.SortByUseValue(ref cards);
                 WrappedCard aa = cards[0];
-                FunctionCard fcard = Engine.GetFunctionCard("ArcheryAttack");
+                FunctionCard fcard = Engine.GetFunctionCard(ArcheryAttack.ClassName);
                 if (fcard.IsAvailable(room, player, aa) && ai.GetAoeValue(aa))
                 {
                     foreach (Player p in ai.FriendNoSelf)
@@ -1027,12 +1227,12 @@ namespace SanguoshaServer.AI
                 }
             }
             players.Clear();
-            cards = ai.GetCards("SavageAssault", player);
+            cards = ai.GetCards(SavageAssault.ClassName, player);
             if (cards.Count > 0)
             {
                 ai.SortByUseValue(ref cards);
                 WrappedCard aa = cards[0];
-                FunctionCard fcard = Engine.GetFunctionCard("SavageAssault");
+                FunctionCard fcard = Engine.GetFunctionCard(SavageAssault.ClassName);
                 if (fcard.IsAvailable(room, player, aa) && ai.GetAoeValue(aa))
                 {
                     foreach (Player p in ai.FriendNoSelf)
@@ -1076,7 +1276,7 @@ namespace SanguoshaServer.AI
                 }
             }
 
-            cards = ai.GetCards("Slash", player);
+            cards = ai.GetCards(Slash.ClassName, player);
             List<ScoreStruct> scores = new List<ScoreStruct>();
             foreach (WrappedCard c in cards)
             {
@@ -1143,7 +1343,7 @@ namespace SanguoshaServer.AI
             }
 
             players.Clear();
-            cards = ai.GetCards("GodSalvation", player);
+            cards = ai.GetCards(GodSalvation.ClassName, player);
             if (cards.Count > 0)
             {
                 foreach (Player p in ai.GetEnemies(player))
@@ -1187,43 +1387,55 @@ namespace SanguoshaServer.AI
 
     public class FightTogetherAI : UseCard
     {
-        public FightTogetherAI() : base("FightTogether")
+        public FightTogetherAI() : base(FightTogether.ClassName)
         {
         }
 
-        public override NulliResult OnNullification(TrustedAI ai, Player from, Player to, WrappedCard trick, bool positive, bool keep)
+        public override NulliResult OnNullification(TrustedAI ai, CardEffectStruct effect, bool positive, bool keep)
         {
             NulliResult result = new NulliResult();
             Room room = ai.Room;
             Player player = ai.Self;
-
-            List<Player> targets = (List<Player>)room.GetTag("targets" + RoomLogic.CardToString(room, trick));
-            List<Player> delete = new List<Player>(targets);
+            Player from = effect.From, to = effect.To;
+            WrappedCard trick = effect.Card;
+            List<Player> delete = new List<Player>(effect.StackPlayers);
+            List<Player> targets = new List<Player>(delete);
             foreach (Player p in delete)
                 if (delete.IndexOf(p) < delete.IndexOf(to))
                     targets.Remove(p);
 
-            int ed = 0, no = 0;
+            double ed = 0, no = 0;
             bool single = true;
             if (positive)
             {
                 if (to.Chained)
                 {
-                    if (ai.IsEnemy(to) && (ai.HasSkill(TrustedAI.CardneedSkill, to) || ai.HasSkill(TrustedAI.PrioritySkill, to)
-                            || ai.HasSkill(TrustedAI.WizardHarmSkill, to)))
+                    if (ai.IsEnemy(to))
                     {
+                        int count = 0;
                         foreach (Player p in targets)
-                            if (p.Chained)
-                                ed++;
-                            else
-                                no++;
+                        {
+                            if (RoomLogic.IsFriendWith(room, to, p) && ai.IsCardEffect(trick, p, from))
+                            {
+                                if (p.Chained)
+                                {
+                                    count++;
+                                    ed++;
+                                    if (ai.HasSkill(TrustedAI.CardneedSkill, to) || ai.HasSkill(TrustedAI.PrioritySkill, to)
+                                            || ai.HasSkill(TrustedAI.WizardHarmSkill, to))
+                                        ed += 0.5;
+                                }
+                                else if (RoomLogic.CanBeChainedBy(room, p, from))
+                                    no++;
+                            }
+                        }
+                        
+                        if (count > 1 && ed > no && (ai.GetCards(HegNullification.ClassName, player).Count > 0 || (room.NullTimes > 0 && room.HegNull)))
+                        {
+                            result.Null = true;
+                            result.Heg = room.NullTimes == 0;
+                        }
                     }
-
-                    if (targets.Count > 0 && ed > no)
-                        single = false;
-
-                    result.Null = true;
-                    result.Heg = single;
                 }
                 else
                 {
@@ -1231,42 +1443,59 @@ namespace SanguoshaServer.AI
                     bool use = false;
                     foreach (Player p in room.GetAlivePlayers())
                     {
-                        if (ai.HasArmorEffect(p, "Vine") && (p.Chained || targets.Contains(p)))
+                        if (ai.HasArmorEffect(p, Vine.ClassName) && (p.Chained || (targets.Contains(p) && ai.IsCardEffect(trick, p, from) && RoomLogic.CanBeChainedBy(room, p, from))))
                         {
                             vine = p;
                             break;
                         }
                     }
 
-                    bool heg_null_card = ai.GetCards("HegNullification", player).Count > 0
+                    bool heg_null_card = ai.GetCards(HegNullification.ClassName, player).Count > 0
                         || (room.NullTimes > 0 && room.HegNull);
                     if (ai.IsFriend(to) && vine != null)
                     {
                         if (to == vine || vine.Chained || heg_null_card)
                             use = true;
+
+                        int count = 0;
                         foreach (Player p in targets)
                         {
-                            if (p.Chained)
-                                ed++;
-                            else
-                                no++;
+                            if (RoomLogic.IsFriendWith(room, to, p) && ai.IsCardEffect(trick, p, from))
+                            {
+                                if (p.Chained)
+                                    ed++;
+                                else if (RoomLogic.CanBeChainedBy(room, p, from))
+                                {
+                                    no++;
+                                    count++;
+                                }
+                            }
                         }
-                        if (targets.Count > 0 && no >= ed)
+
+                        if (count > 1 && no >= ed && room.NullTimes == 0)
                             single = false;
 
                     }
                     else if (RoomLogic.IsFriendWith(room, player, to) && heg_null_card)
                     {
                         no = 1;
+                        int count = 0;
                         foreach (Player p in targets)
                         {
+                            if (!RoomLogic.IsFriendWith(room, to, p) || !ai.IsCardEffect(trick, p, from)) continue;
                             if (p.Chained)
                                 ed++;
-                            else
+                            else if (RoomLogic.CanBeChainedBy(room, p, from))
+                            {
+                                count++;
                                 no++;
+                            }
                         }
-                        if (targets.Count > 0 && no >= ed)
+                        if (count > 1 && no >= ed)
+                        {
                             use = true;
+                            single = room.NullTimes == 0;
+                        }
 
                     }
                     result.Null = use;
@@ -1275,8 +1504,27 @@ namespace SanguoshaServer.AI
             }
             else
             {
-                if (RoomLogic.IsFriendWith(room, player, to) && to.Chained && !keep)
-                    result.Null = true;
+                if (RoomLogic.IsFriendWith(room, player, to) && to.Chained && !keep && room.NullTimes > 0 && room.HegNull)
+                {
+                    int count = 0;
+                    foreach (Player p in targets)
+                    {
+                        if (RoomLogic.IsFriendWith(room, to, p))
+                        {
+                            if (p.Chained)
+                            {
+                                ed++;
+                                count++;
+                            }
+                            else
+                            {
+                                no++;
+                            }
+                        }
+                    }
+                    if (count > 1 && ed >= no)
+                        result.Null = true;
+                }
             }
 
             return result;
@@ -1294,7 +1542,7 @@ namespace SanguoshaServer.AI
                 {
                     string kingdom = string.Empty;
                     if (p.HasShownOneGeneral())
-                        kingdom = p.Role == "careerist" ? p.Name : p.Kingdom;
+                        kingdom = p.GetRoleEnum() == Player.PlayerRole.Careerist ? p.Name : p.Kingdom;
 
                     if (ai.IsCardEffect(card, p, player))
                     {
@@ -1373,12 +1621,12 @@ namespace SanguoshaServer.AI
 
                 if (win > 1)
                 {
-                    if (win == v_big)
+                    if (win == v_big && bigs.Count > 1)             //目标只有1个还不如重铸
                     {
                         ai.Choice[Name] = "big";
                         use.To.Add(bigs[0]);
                     }
-                    else if (win == v_small)
+                    else if (win == v_small && smalls.Count > 1)
                     {
                         ai.Choice[Name] = "small";
                         use.To.Add(smalls[0]);
@@ -1400,7 +1648,7 @@ namespace SanguoshaServer.AI
 
     public class AllianceFeastAI : UseCard
     {
-        public AllianceFeastAI() : base("AllianceFeast")
+        public AllianceFeastAI() : base(AllianceFeast.ClassName)
         {
         }
 
@@ -1410,15 +1658,17 @@ namespace SanguoshaServer.AI
             return strs[0];
         }
 
-        public override NulliResult OnNullification(TrustedAI ai, Player from, Player to, WrappedCard trick, bool positive, bool keep)
+        public override NulliResult OnNullification(TrustedAI ai, CardEffectStruct effect, bool positive, bool keep)
         {
             NulliResult result = new NulliResult();
+            Player from = effect.From, to = effect.To;
+            WrappedCard trick = effect.Card;
             if (!ai.IsFriend(to) && !ai.IsEnemy(to)) return result;
             Room room = ai.Room;
             Player player = ai.Self;
 
-            List<Player> targets = (List<Player>)room.GetTag("targets" + RoomLogic.CardToString(room, trick));
-            List<Player> delete = new List<Player>(targets);
+            List<Player> delete = new List<Player>(effect.StackPlayers);
+            List<Player> targets = new List<Player>(delete);
             foreach (Player p in delete)
                 if (delete.IndexOf(p) < delete.IndexOf(to))
                     targets.Remove(p);
@@ -1448,7 +1698,7 @@ namespace SanguoshaServer.AI
             }
             else
             {
-                List<WrappedCard> cards = ai.GetCards("HegNullification", player);
+                List<WrappedCard> cards = ai.GetCards(HegNullification.ClassName, player);
                 bool hegnull = (cards.Count > 0 && room.NullTimes == 0)
                     || (room.NullTimes > 0 && room.HegNull);
 
@@ -1521,14 +1771,14 @@ namespace SanguoshaServer.AI
 
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
         {
-            List<WrappedCard> hegnullcards = ai.GetCards("HegNullification", player);
+            List<WrappedCard> hegnullcards = ai.GetCards(HegNullification.ClassName, player);
             List<string> effect_kingdoms = new List<string>();
             Room room = ai.Room;
             foreach (Player p in room.GetOtherPlayers(player))
             {
                 if (!RoomLogic.IsFriendWith(room, player, p) && p.HasShownOneGeneral() && ai.IsCardEffect(card, p, player))
                 {
-                    if (p.Role == "careerist")
+                    if (p.GetRoleEnum() == Player.PlayerRole.Careerist)
                         effect_kingdoms.Add(p.Name);
                     else if (!effect_kingdoms.Contains(p.Kingdom))
                         effect_kingdoms.Add(p.Kingdom);
@@ -1541,7 +1791,7 @@ namespace SanguoshaServer.AI
             foreach (string kingdom in effect_kingdoms)
             {
                 double value = 0;
-                if (kingdom.Contains("sgs"))
+                if (kingdom.Contains("SGS"))
                 {
                     value++;
                     if (ai.HasSkill(TrustedAI.CardneedSkill, player)) value += 0.5;
@@ -1644,7 +1894,7 @@ namespace SanguoshaServer.AI
             if (winner != string.Empty)
             {
                 Player target = null;
-                if (winner.StartsWith("sgs"))
+                if (winner.StartsWith("SGS"))
                     target = room.FindPlayer(winner);
                 else
                 {
@@ -1668,7 +1918,7 @@ namespace SanguoshaServer.AI
 
     public class ThreatenEmperorAI : UseCard
     {
-        public ThreatenEmperorAI() : base("ThreatenEmperor")
+        public ThreatenEmperorAI() : base(ThreatenEmperor.ClassName)
         {
         }
 
@@ -1683,7 +1933,7 @@ namespace SanguoshaServer.AI
                 ai.SortByKeepValue(ref ids, false);
                 foreach (int id in ids)
                 {
-                    if (!ai.IsCard(id, "JadeSeal", player))
+                    if (!ai.IsCard(id, JadeSeal.ClassName, player))
                     {
                         use.Card = room.GetCard(id);
                         break;
@@ -1702,9 +1952,11 @@ namespace SanguoshaServer.AI
             return use;
         }
 
-        public override NulliResult OnNullification(TrustedAI ai, Player from, Player to, WrappedCard trick, bool positive, bool keep)
+        public override NulliResult OnNullification(TrustedAI ai, CardEffectStruct effect, bool positive, bool keep)
         {
             NulliResult result = new NulliResult();
+            Player from = effect.From, to = effect.To;
+            WrappedCard trick = effect.Card;
             if (positive)
             {
                 if (ai.IsEnemy(from) && !from.IsNude()) result.Null = true;
@@ -1713,14 +1965,14 @@ namespace SanguoshaServer.AI
             {
                 if (from == ai.Self)
                 {
-                    List<WrappedCard> cards = ai.GetCards("Nullification", ai.Self);
+                    List<WrappedCard> cards = ai.GetCards(Nullification.ClassName, ai.Self);
                     if (cards.Count == 1)
                     {
                         List<int> ids = ai.Self.GetCards("he");
                         foreach (int id in cards[0].SubCards)
                             ids.Remove(id);
 
-                        if (ids.Count == 0 && (RoomLogic.IsVirtualCard(ai.Room, cards[0]) || !ai.HasSkill("jizhi", ai.Self)))
+                        if (ids.Count == 0 && (cards[0].IsVirtualCard() || !ai.HasSkill("jizhi", ai.Self)))
                             return result;
                     }
                     result.Null = true;
@@ -1735,10 +1987,10 @@ namespace SanguoshaServer.AI
         {
             if (ai.IsCardEffect(card, player, player) && !ai.IsCancelTarget(card, player, player))
             {
-                List<int> ids = new List<int>(player.HandCards);
+                List<int> ids= player.GetCards("h");
                 ids.RemoveAll(t => card.SubCards.Contains(t));
 
-                if (ai.HasSkill("jizhi") && !RoomLogic.IsVirtualCard(ai.Room, card) || ids.Count > 0)
+                if (ai.HasSkill("jizhi") && !card.IsVirtualCard() || ids.Count > 0)
                 {
                     use.Card = card;
                 }
@@ -1746,26 +1998,56 @@ namespace SanguoshaServer.AI
         }
     }
 
-    public class ImperialOrderAI : UseCard
+    public class EdictAI : UseCard
     {
-        public ImperialOrderAI() : base("ImperialOrder")
+        public EdictAI() : base(Edict.ClassName)
         {
+        }
+
+        public override string OnChoice(TrustedAI ai, Player player, string choices, object data)
+        {
+            return "show";
         }
 
         public override CardUseStruct OnResponding(TrustedAI ai, Player player, string pattern, string prompt, object data)
         {
             CardUseStruct use = new CardUseStruct();
-            if (ai.HasArmorEffect(player, "SilverLion") && player.IsWounded())
-            {
+            if (ai.HasArmorEffect(player, SilverLion.ClassName) && player.IsWounded())
                 use.Card = ai.Room.GetCard(player.Armor.Key);
-            }
 
             return use;
+        }
+        public override double UsePriorityAdjust(TrustedAI ai, Player player, List<Player> targets, WrappedCard card)
+        {
+            if (ai.IsSituationClear() && player.HasShownOneGeneral())
+                return -8;
+
+            return 0;
         }
 
         public override void Use(TrustedAI ai, Player player, ref CardUseStruct use, WrappedCard card)
         {
-            use.Card = card;
+            bool will_use = !ai.IsSituationClear();
+            if (!will_use)
+            {
+                if (!player.HasShownOneGeneral())
+                    will_use = true;
+                else if (ai.GetOverflow(player) > 0)
+                {
+                    Room room = ai.Room;
+                    foreach (int id in card.SubCards)
+                    {
+                        if (room.GetCardPlace(id) == Player.Place.PlaceHand && room.GetCardOwner(id) == player)
+                        {
+                            will_use = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (will_use)
+                use.Card = card;
         }
     }
 }

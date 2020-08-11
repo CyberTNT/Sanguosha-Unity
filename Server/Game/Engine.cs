@@ -8,8 +8,11 @@ using System.Linq;
 using static CommonClass.Game.WrappedCard;
 using SanguoshaServer.Scenario;
 using SanguoshaServer.Package;
-using static SanguoshaServer.Game.FunctionCard;
 using SanguoshaServer.AI;
+using static SanguoshaServer.Package.FunctionCard;
+using System.Diagnostics;
+using SanguoshaServer.Extensions;
+using static CommonClass.Game.Player;
 
 namespace SanguoshaServer.Game
 {
@@ -33,12 +36,13 @@ namespace SanguoshaServer.Game
         private static DataSet ai_values = new DataSet();
         private static Dictionary<string, List<int>> mode_card_ids = new Dictionary<string, List<int>>();
         private static Dictionary<string, List<int>> package_card_ids = new Dictionary<string, List<int>>();
-        private static Dictionary<string, General> generals = new Dictionary<string, General>();
+        private static Dictionary<string, Dictionary<string, General>> generals = new Dictionary<string, Dictionary<string, General>>();
         private static Dictionary<string, List<string>> pack_generals = new Dictionary<string, List<string>>();
         private static Dictionary<string, List<string>> related_skills = new Dictionary<string, List<string>>();
-        private static Dictionary<string, List<string>> convert_pairs = new Dictionary<string, List<string>>();
+        private static Dictionary<string, List<General>> convert_pairs = new Dictionary<string, List<General>>();
         private static Dictionary<string, SkillEvent> ai_skill_event = new Dictionary<string, SkillEvent>();
         private static Dictionary<string, UseCard> ai_card_event = new Dictionary<string, UseCard>();
+        private static List<string> huashen_baned = new List<string>();
 
         private static List<ProhibitSkill> prohibit_skills = new List<ProhibitSkill>();
         private static List<FixCardSkill> fixcard_skills = new List<FixCardSkill>();
@@ -53,6 +57,8 @@ namespace SanguoshaServer.Game
 
         private static Dictionary<string, CardPattern> patterns = new Dictionary<string, CardPattern>();
         private static List<ExpPattern> enginePatterns = new List<ExpPattern>();
+
+        private static readonly List<Title> titles = new List<Title>();
 
         public Engine()
         {
@@ -93,43 +99,55 @@ namespace SanguoshaServer.Game
                 {
                     //反射创建
                     Type t = Type.GetType("SanguoshaServer.Package." + package);
-                    GeneralPackage pack = (GeneralPackage)Activator.CreateInstance(t);
-                    foreach (FunctionCard card  in pack.SkillCards)
-                        function_cards.Add(card.Name, card);
-                    foreach (string key in pack.RelatedSkills.Keys)
-                        related_skills.Add(key, pack.RelatedSkills[key]);
-                    foreach (string key in pack.ConvertPairs.Keys)
+                    if (t != null)
                     {
-                        if (convert_pairs.ContainsKey(key))
-                            convert_pairs[key].AddRange(pack.ConvertPairs[key]);
-                        else
-                            convert_pairs.Add(key, pack.ConvertPairs[key]);
+                        GeneralPackage pack = (GeneralPackage)Activator.CreateInstance(t);
+                        foreach (FunctionCard card in pack.SkillCards)
+                        {
+                            Debug.Assert(!function_cards.ContainsKey(card.Name), string.Format("duplicated skill card {0} in  package {1}", card.Name, pack.Name));
+                            function_cards.Add(card.Name, card);
+                        }
+                        foreach (string key in pack.RelatedSkills.Keys)
+                        {
+                            Debug.Assert(!related_skills.ContainsKey(key), string.Format("duplicated related skill {0} in  package {1}", key, pack.Name));
+                            related_skills.Add(key, pack.RelatedSkills[key]);
+                        }
+                        AddSkills(pack.Skills);
+                        foreach (string key in pack.Patterns.Keys)
+                            patterns.Add(key, pack.Patterns[key]);
                     }
-                    AddSkills(pack.Skills);
-                    foreach (string key in pack.Patterns.Keys)
-                        patterns.Add(key, pack.Patterns[key]);
                 }
                 //创建卡牌包中的卡牌、技能卡、技能
                 foreach (string package in mode.CardPackage)
                 {
                     //反射创建
                     Type t = Type.GetType("SanguoshaServer.Package." + package);
-                    CardPackage pack = (CardPackage)Activator.CreateInstance(t);
-                    foreach (FunctionCard card in pack.Cards)
-                        if (!function_cards.ContainsKey(card.Name))
-                            function_cards.Add(card.Name, card);
-
-                    AddSkills(pack.Skills);
-                    foreach (Skill skill in pack.Skills)
+                    if (t != null)
                     {
-                        if (skill is TriggerSkill trigger)
+                        CardPackage pack = (CardPackage)Activator.CreateInstance(t);
+                        foreach (FunctionCard card in pack.Cards)
                         {
-                            if (pack_equip_triggerskills.ContainsKey(package))
-                                pack_equip_triggerskills[package].Add(trigger);
-                            else
-                                pack_equip_triggerskills[package] = new List<TriggerSkill> { trigger };
+                            System.Diagnostics.Debug.Assert(!function_cards.ContainsKey(card.Name), string.Format("duplicated card {0} in  package {1}", card.Name, pack.Name));
+                            if (!function_cards.ContainsKey(card.Name))
+                                function_cards.Add(card.Name, card);
                         }
+
+                        AddSkills(pack.Skills);
+                        foreach (Skill skill in pack.Skills)
+                        {
+                            if (skill is TriggerSkill trigger)
+                            {
+                                if (pack_equip_triggerskills.ContainsKey(package))
+                                    pack_equip_triggerskills[package].Add(trigger);
+                                else
+                                    pack_equip_triggerskills[package] = new List<TriggerSkill> { trigger };
+                            }
+                        }
+
+                        foreach (string key in pack.RelatedSkills.Keys)
+                            related_skills.Add(key, pack.RelatedSkills[key]);
                     }
+
                 }
                 //创建AI
                 foreach (string package in mode.GeneralPackage)
@@ -140,10 +158,16 @@ namespace SanguoshaServer.Game
                     {
                         AIPackage pack = (AIPackage)Activator.CreateInstance(t);
                         foreach (SkillEvent e in pack.Events)
+                        {
+                            Debug.Assert(!ai_skill_event.ContainsKey(e.Name), string.Format("{0} skill event {1} duplicated", pack.Name, e.Name));
                             ai_skill_event[e.Name] = e;
+                        }
 
                         foreach (UseCard e in pack.UseCards)
+                        {
+                            Debug.Assert(!ai_card_event.ContainsKey(e.Name), string.Format("{0} use card {1} duplicated", pack.Name, e.Name));
                             ai_card_event[e.Name] = e;
+                        }
                     }
                 }
                 foreach (string package in mode.CardPackage)
@@ -154,10 +178,16 @@ namespace SanguoshaServer.Game
                     {
                         AIPackage pack = (AIPackage)Activator.CreateInstance(t);
                         foreach (SkillEvent e in pack.Events)
+                        {
+                            Debug.Assert(!ai_skill_event.ContainsKey(e.Name), string.Format("{0} skill event {1} duplicated", pack.Name, e.Name));
                             ai_skill_event[e.Name] = e;
+                        }
 
                         foreach (UseCard e in pack.UseCards)
+                        {
+                            Debug.Assert(!ai_card_event.ContainsKey(e.Name), string.Format("{0} use card {1} duplicated", pack.Name, e.Name));
                             ai_card_event[e.Name] = e;
+                        }
                     }
                 }
             }
@@ -214,6 +244,11 @@ namespace SanguoshaServer.Game
             sql = "select * from ai_general_value";
             dt = DB.GetData(sql, false);
             dt.TableName = "general_value";
+            ai_values.Tables.Add(dt);
+
+            sql = "select * from role_tendency";
+            dt = DB.GetData(sql, false);
+            dt.TableName = "role_tendency";
             ai_values.Tables.Add(dt);
         }
 
@@ -274,6 +309,32 @@ namespace SanguoshaServer.Game
 
             sql = "select * from bot_skill_lines";
             bot_skills_lines = DB.GetData(sql, false);
+
+            //称号、成就收集器
+            sql = "select * from title";
+            DataTable title_table = DB.GetData(sql, false);
+
+            foreach (DataRow data in title_table.Rows)
+            {
+                string title_name = data["title_name"].ToString();
+                //反射创建
+                Type t = Type.GetType("SanguoshaServer.Extensions." + title_name);
+                if (t != null)
+                {
+                    int id = int.Parse(data["title_id"].ToString());
+                    object[] pa = { id };
+                    Title title = (Title)Activator.CreateInstance(t, pa);
+                    titles.Add(title);
+                }
+            }
+
+            //左慈化身禁表
+            sql = "select * from huashen_ban_list";
+            DataTable ban_table = DB.GetData(sql, false);
+            foreach (DataRow row in ban_table.Rows)
+            {
+                huashen_baned.Add(row["general"].ToString());
+            }
         }
 
         private void LoadTranslations()
@@ -315,6 +376,7 @@ namespace SanguoshaServer.Game
                     Type t = Type.GetType("SanguoshaServer.Scenario." + mode_name);
                     GameScenario scenario = (GameScenario)Activator.CreateInstance(t);
                     scenarios.Add(mode_name, scenario);
+                    AddSkills(scenario.Skills);
                 }
                 else
                 {
@@ -330,8 +392,13 @@ namespace SanguoshaServer.Game
             dt = dView.ToTable();
             foreach (DataRow r in dt.Rows)
             {
-                if (bool.Parse(r["enable"].ToString()))
-                    game_modes[r["mode"].ToString()].GeneralPackage.Add(r["package_name"].ToString());
+                bool enable = bool.Parse(r["enable"].ToString());
+                if (enable)
+                {
+                    string mode_name = r["mode"].ToString();
+                    string package_name = r["package_name"].ToString();
+                    game_modes[mode_name].GeneralPackage.Add(package_name);
+                }
             }
             //读取模式对应的卡牌包
             sql = "select * from card_package";
@@ -437,48 +504,52 @@ namespace SanguoshaServer.Game
             File.AppendAllText("gamedata/generalinfo.json", JsonUntity.DataSet2Json(general_data));
 
             //生成武将模板
-            foreach (DataRow row in table.Rows)
-            {
-                string name = row["general_name"].ToString();
-                string kingdom = row["kingdom"].ToString();
-                int double_max_hp = int.Parse(row["HP"].ToString());
-                bool hegemony_lord = bool.Parse(row["hegemony_lord"].ToString());
-                bool classic_lord = bool.Parse(row["classic_lord"].ToString());
-                bool male = bool.Parse(row["sex"].ToString());
-                bool hidden = bool.Parse(row["hidden"].ToString());
-                int hp_adjust = int.Parse(row["adjust_hp"].ToString());
-                //string name, string kingdom, bool classic_lord = false, bool hegemony_lord = false, int double_max_hp = 4, bool male = true, bool hidden = false
-
-                General general = new General(name, kingdom, classic_lord, hegemony_lord, double_max_hp, male, hidden);
-                if (hp_adjust > 0)
-                    general.Head_max_hp_adjusted_value = - hp_adjust;
-                else
-                    general.Deputy_max_hp_adjusted_value = hp_adjust;
-
-                generals.Add(name, general);
-                string companion = row["companion"].ToString();
-                if (!string.IsNullOrEmpty(companion))
-                    generals[name].Companions.AddRange(companion.Split(','));
-            }
-
-            //国战模式
             foreach (string mode in game_modes.Keys)
             {
+                generals[mode] = new Dictionary<string, General>();
                 foreach (string pack in game_modes[mode].GeneralPackage)
                 {
-                    DataRow[] rows = table.Select("package = '" + pack + "'");
                     List<string> general_names = new List<string>();
+                    DataRow[] rows = table.Select(string.Format("package = '{0}'", pack));
                     foreach (DataRow row in rows)
                     {
-                        general_names.Add(row["general_name"].ToString());
+                        string name = row["general_name"].ToString();
+                        string kingdom = row["kingdom"].ToString();
+                        int double_max_hp = int.Parse(row["HP"].ToString());
+                        bool lord = bool.Parse(row["lord"].ToString());
+                        bool male = bool.Parse(row["sex"].ToString());
+                        bool selectable = bool.Parse(row["selectable"].ToString());
+                        bool hidden = bool.Parse(row["hidden"].ToString());
+                        int hp_adjust = int.Parse(row["adjust_hp"].ToString());
+                        string main = row["main"].ToString();
+
+                        General general = new General(name, kingdom, lord, pack, double_max_hp, male, selectable, hidden);
+                        if (hp_adjust > 0)
+                            general.Head_max_hp_adjusted_value = -hp_adjust;
+                        else
+                            general.Deputy_max_hp_adjusted_value = hp_adjust;
+
+                        string companion = row["companion"].ToString();
+                        if (!string.IsNullOrEmpty(companion))
+                            general.Companions.AddRange(companion.Split(','));
+
+                        generals[mode].Add(name, general);              //按模式分类武将
+                        general_names.Add(name);
+
+                        if (!string.IsNullOrEmpty(main))                //添加主武将
+                        {
+                            if (convert_pairs.ContainsKey(main))
+                                convert_pairs[main].Add(general);
+                            else
+                                convert_pairs[main] = new List<General> { general };
+                        }
                     }
-                    //File.AppendAllText("gamedata/result.json", string.Format("{0}:{1}", pack, general_names.Count));
                     pack_generals[pack] = general_names;                //按卡牌包给武将分类
                 }
             }
 
             File.Delete("gamedata/generals.json");
-            File.AppendAllText("gamedata/generals.json", JsonUntity.Dictionary2Json<string, List<string>>(pack_generals));
+            File.AppendAllText("gamedata/generals.json", JsonUntity.Dictionary2Json(pack_generals));
         }
 
         public static GameScenario GetScenario(string name)
@@ -503,6 +574,7 @@ namespace SanguoshaServer.Game
 
             return bots.Select(string.Format("id = '{0}'", result))[0];
         }
+        public static List<string> GetBotsNames() => new List<string>(bot_names);
 
         public static DataRow GetLines(string id)
         {
@@ -524,23 +596,25 @@ namespace SanguoshaServer.Game
         {
             List<int> ids = new List<int>();
             foreach (string name in package_card_ids.Keys)
-            {
                 if (packages.Contains(name))
-                {
                     ids.AddRange(package_card_ids[name]);
-                }
-            }
 
             return ids;
         }
         public static WrappedCard GetRealCard(int id)
         {
+            Debug.Assert(id > -1);
             if (wrapped_cards.ContainsKey(id))
+            {
+                Debug.Assert(wrapped_cards[id] != null);
                 return wrapped_cards[id];
+            }
             else
                 return null;
         }
-        
+
+        public static List<int> GetEngineCards() => new List<int>(wrapped_cards.Keys);
+
         public static FunctionCard GetFunctionCard(string card_name)
         {
             if (function_cards.ContainsKey(card_name))
@@ -556,7 +630,7 @@ namespace SanguoshaServer.Game
                 Skill = card.Skill,
                 ShowSkill = card.ShowSkill,
                 UserString = card.UserString,
-                Flags = card.Flags,
+                Flags = new List<string>(card.Flags),
                 Mute = card.Mute,
             };
             new_card.ExtraTarget = card.ExtraTarget;
@@ -569,7 +643,7 @@ namespace SanguoshaServer.Game
         #endregion
 
         #region 武将相关
-        public static List<string> GetGenerals(List<string> packages, bool include_hidden = true)
+        public static List<string> GetGenerals(List<string> packages, string mode, bool include_unselectable = true)
         {
             List<string> generals = new List<string>();
             foreach (string key in pack_generals.Keys)
@@ -578,8 +652,8 @@ namespace SanguoshaServer.Game
                 {
                     foreach (string name in pack_generals[key])
                     {
-                        General general = GetGeneral(name);
-                        if (general != null && (include_hidden || !general.Hidden))
+                        General general = GetGeneral(name, mode);
+                        if (general != null && (include_unselectable || general.Selectable))
                             generals.Add(general.Name);
                     }
                 }
@@ -588,29 +662,29 @@ namespace SanguoshaServer.Game
             return generals;
         }
 
-        public static List<string> GetConverPairs(string name)
+        public static List<General> GetConverPairs(string name)
         {
             if (convert_pairs.ContainsKey(name))
                 return convert_pairs[name];
             else
-                return new List<string>();
+                return new List<General>();
         }
 
-        public static string GetMainGeneral(string general_name)
+        public static string GetMainGeneral(General general)
         {
             foreach (string name in convert_pairs.Keys)
             {
-                if (name == general_name || convert_pairs[name].Contains(general_name))
+                if (name == general.Name || convert_pairs[name].Contains(general))
                     return name;
             }
 
-            return general_name;
+            return general.Name;
         }
 
-        public static General GetGeneral(string name)
+        public static General GetGeneral(string name, string mode)
         {
-            if (generals.ContainsKey(name))
-                return generals[name];
+            if (generals.ContainsKey(mode) && generals[mode].ContainsKey(name))
+                return generals[mode][name];
             else
                 return null;
         }
@@ -669,6 +743,7 @@ namespace SanguoshaServer.Game
         {
             foreach (Skill skill in all_skills)
             {
+                System.Diagnostics.Debug.Assert(!skills.ContainsKey(skill.Name), string.Format("duplicated skill {0}", skill.Name));
                 if (skill == null || skills.ContainsKey(skill.Name))
                 {
                     continue;
@@ -736,11 +811,10 @@ namespace SanguoshaServer.Game
         }
 
         public static List<TriggerSkill> GetPublicTriggerSkills() => public_trigger_skills;
-        public static List<Skill> GetEquipTriggerSkills(List<string> packs)
+        public static List<Skill> GetEquipTriggerSkills()
         {
             List<Skill> skills = new List<Skill>();
             foreach (string p in pack_equip_triggerskills.Keys)
-                if (packs.Contains(p))
                     skills.AddRange(pack_equip_triggerskills[p]);
 
             return skills;
@@ -748,7 +822,7 @@ namespace SanguoshaServer.Game
         public static Skill GetMainSkill(string skill_name)
         {
             Skill skill = GetSkill(skill_name);
-            if (skill != null && (skill.Visible || related_skills.Keys.Contains(skill_name))) return skill;
+            if (skill != null && (skill.Visible|| related_skills.Keys.Contains(skill_name))) return skill;
             foreach (string key in related_skills.Keys) {
                 foreach (string name in related_skills[key])
                     if (name == skill_name) return GetSkill(key);
@@ -764,6 +838,8 @@ namespace SanguoshaServer.Game
                 if (flag == "armor" && skill.Armors.Contains(skill_name) && skill.ViewHas(room, player, skill_name))
                     skills.Add(skill);
                 else if (flag == "skill" && skill.Skills.Contains(skill_name) && skill.ViewHas(room, player, skill_name))
+                    skills.Add(skill);
+                else if (flag == "treasure" && skill.Treasures.Contains(skill_name) && skill.ViewHas(room, player, skill_name))
                     skills.Add(skill);
             }
 
@@ -792,6 +868,18 @@ namespace SanguoshaServer.Game
 
             return null;
         }
+
+        public static Skill IsProhibited(Room room, Player from, Player to, ProhibitSkill.ProhibitType type)
+        {
+            foreach (ProhibitSkill skill in prohibit_skills)
+            {
+                if (skill.IsProhibited(room, from, to, type))
+                    return skill;
+            }
+
+            return null;
+        }
+
         public static Skill Invalid(Room room, Player player, string skill)
         {
             foreach (InvalidSkill sk in invalid_skills)
@@ -823,57 +911,101 @@ namespace SanguoshaServer.Game
         public static int CorrectCardTarget(Room room, TargetModSkill.ModType type, Player from, WrappedCard card)
         {
             int x = 0;
-
-            if (type == TargetModSkill.ModType.Residue)
+            switch (type)
             {
-                foreach (TargetModSkill skill in targetmod_skills)
-                {
-                    ExpPattern p = new ExpPattern(skill.Pattern);
-                    if (p.Match(from, room, card))
+                case TargetModSkill.ModType.Residue:
                     {
-                        int residue = skill.GetResidueNum(room, from, card);
-                        if (residue >= 998) return residue;
-                        x += residue;
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card))
+                            {
+                                int residue = skill.GetResidueNum(room, from, card);
+                                if (residue >= 998) return residue;
+                                x += residue;
+                            }
+                        }
+
+                        break;
                     }
-                }
-            }
-            else if (type == TargetModSkill.ModType.ExtraMaxTarget)
-            {
-                foreach (TargetModSkill skill in targetmod_skills)
-                {
-                    ExpPattern p = new ExpPattern(skill.Pattern);
-                    if (p.Match(from, room, card))
-                        x += skill.GetExtraTargetNum(room, from, card);
-                }
+
+                case TargetModSkill.ModType.ExtraMaxTarget:
+                    {
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card))
+                                x += skill.GetExtraTargetNum(room, from, card);
+                        }
+
+                        break;
+                    }
             }
 
             return x;
         }
         public static bool CorrectCardTarget(Room room, TargetModSkill.ModType type, Player from, Player to, WrappedCard card)
         {
-            if (type == TargetModSkill.ModType.DistanceLimit)
+            switch (type)
             {
-                foreach (TargetModSkill skill in targetmod_skills)
-                {
-                    ExpPattern p = new ExpPattern(skill.Pattern);
-                    if (p.Match(from, room, card) && skill.GetDistanceLimit(room, from, to, card)) return true;
-                }
-            }
-            else if (type == TargetModSkill.ModType.SpecificAssignee)
-            {
-                foreach (TargetModSkill skill in targetmod_skills)
-                {
-                    ExpPattern p = new ExpPattern(skill.Pattern);
-                    if (p.Match(from, room, card) && skill.CheckSpecificAssignee(room, from, to, card)) return true;
-                }
-            }
-            else if (type == TargetModSkill.ModType.History)
-            {
-                foreach (TargetModSkill skill in targetmod_skills)
-                {
-                    ExpPattern p = new ExpPattern(skill.Pattern);
-                    if (p.Match(from, room, card) && skill.IgnoreCount(room, from, card)) return true;
-                }
+                case TargetModSkill.ModType.DistanceLimit:
+                    {
+                        CardUseStruct.CardUseReason reason = room.GetRoomState().GetCurrentCardUseReason();
+                        string pattern = room.GetRoomState().GetCurrentCardUsePattern(from);
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card) && skill.GetDistanceLimit(room, from, to, card, reason, pattern)) return true;
+                        }
+
+                        break;
+                    }
+
+                case TargetModSkill.ModType.SpecificAssignee:
+                    {
+                        CardUseStruct.CardUseReason reason = room.GetRoomState().GetCurrentCardUseReason();
+                        string pattern = room.GetRoomState().GetCurrentCardUsePattern(from);
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card) && skill.CheckSpecificAssignee(room, from, to, card, pattern)) return true;
+                        }
+
+                        break;
+                    }
+
+                case TargetModSkill.ModType.SpecificTarget:
+                    {
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card) && skill.CheckSpecificTarget(room, from, to, card)) return true;
+                        }
+
+                        break;
+                    }
+
+                case TargetModSkill.ModType.History:
+                    {
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card) && skill.IgnoreCount(room, from, card)) return true;
+                        }
+
+                        break;
+                    }
+
+                case TargetModSkill.ModType.AttackRange:
+                    {
+                        foreach (TargetModSkill skill in targetmod_skills)
+                        {
+                            CardPattern p = GetPattern(skill.Pattern);
+                            if (p.Match(from, room, card) && skill.InAttackRange(room, from, to, card)) return true;
+                        }
+
+                        break;
+                    }
             }
 
             return false;
@@ -914,6 +1046,30 @@ namespace SanguoshaServer.Game
                 return double.Parse(rows[0]["value"].ToString());
 
             return 4;
+        }
+        public static bool IsAISelectable(string general, string mode)
+        {
+            DataRow[] rows = ai_values.Tables["general_value"].Select(string.Format("general = '{0}' and mode = '{1}'", general, mode));
+            if (rows.Length > 0)
+                return bool.Parse(rows[0]["ai_select"].ToString());
+
+            return false;
+        }
+
+        static readonly Dictionary<PlayerRole, string> role_map = new Dictionary<PlayerRole, string>
+        {
+            { PlayerRole.Lord, "lord" },
+            { PlayerRole.Loyalist, "loyalist" },
+            { PlayerRole.Rebel, "rebel"  },
+            { PlayerRole.Renegade, "renegade"  },
+        };
+        public static int GetRoleTendency(string general, PlayerRole role)
+        {
+            DataRow[] rows = ai_values.Tables["role_tendency"].Select(string.Format("general = '{0}'", general));
+            if (rows.Length > 0)
+                return int.Parse(rows[0][role_map[role]].ToString());
+
+            return 0;
         }
 
         public static SkillEvent GetSkillEvent(string skill)
@@ -996,24 +1152,36 @@ namespace SanguoshaServer.Game
 
             return extra;
         }
+
+        public static bool IgnoreHandCard(Room room, Player player, int card_id)
+        {
+            foreach (MaxCardsSkill skill in maxcards_skills)
+                if (skill.Ingnore(room, player, card_id))
+                    return true;
+
+            return false;
+        }
         #endregion
 
         public static CardPattern GetPattern(string name)
         {
-            if (name == null)
-                name = string.Empty;
-
-            if (patterns.ContainsKey(name))
+            lock (patterns)
             {
-                CardPattern ptn = patterns[name];
-                if (ptn != null) return ptn;
+                if (name == null)
+                    name = string.Empty;
+
+                if (patterns.ContainsKey(name))
+                {
+                    CardPattern ptn = patterns[name];
+                    if (ptn != null) return ptn;
+                }
+
+                ExpPattern expptn = new ExpPattern(name);
+                enginePatterns.Add(expptn);
+                patterns[name] = expptn;
+
+                return expptn;
             }
-
-            ExpPattern expptn = new ExpPattern(name);
-            enginePatterns.Add(expptn);
-            patterns.Add(name, expptn);
-
-            return expptn;
         }
 
         public static bool MatchExpPattern(Room room, string pattern, Player player, WrappedCard card)
@@ -1071,9 +1239,26 @@ namespace SanguoshaServer.Game
             }
         }
 
-        public static DataRow[] GetGeneralSkin(string name, string mode)
+        public static List<DataRow> GetGeneralSkin(string name, string mode)
         {
-            return general_skin.Select(string.Format("general_name = '{0}' and (mode = '{1}' or mode = '')", name, mode));
+            List<DataRow> selected = new List<DataRow>(general_skin.Select(string.Format("general_name = '{0}' and mode = '{1}'", name, mode)));
+            List<DataRow> selected2 = new List<DataRow>(general_skin.Select(string.Format("general_name = '{0}' and mode = ''", name)));
+
+            foreach (DataRow row2 in selected2)
+            {
+                bool app = true;
+                foreach (DataRow row1 in selected)
+                {
+                    if (row2["skin_id"].ToString() == row1["skin_id"].ToString())
+                    {
+                        app = false;
+                        break;
+                    }
+                }
+                if (app) selected.Add(row2); 
+            }
+
+            return selected;
         }
 
         public static bool CheckShwoAvailable(CommonClassLibrary.Profile profile)
@@ -1082,19 +1267,20 @@ namespace SanguoshaServer.Game
                 && show_frame.Select("id = " + profile.Frame).Length > 0
                 && show_bg.Select("id = " + profile.Bg).Length > 0;
         }
+        public static List<string> GetHuashenBanList() => huashen_baned;
+        public static List<Title> GetTitleCollector() => titles;
 
         #region AI数据
-        public static Dictionary<string, double> GetSkillCoopAdjust()
+        public static Dictionary<string, double> GetSkillCoopAdjust(string mode)
         {
             Dictionary<string, double> result = new Dictionary<string, double>();
-            foreach (DataRow data in ai_values.Tables["skill_coop_value"].Rows)
+            foreach (DataRow data in ai_values.Tables["skill_coop_value"].Select(string.Format("mode = '{0}'", mode)))
                 result[data["skills"].ToString()] = double.Parse(data["value"].ToString());
 
             return result;
         }
         public static double GetCardUseValue(string name)
         {
-            Dictionary<string, double> result = new Dictionary<string, double>();
             DataRow[] rows = ai_values.Tables["card_values"].Select(string.Format("card_name = '{0}'", name));
             if (rows.Length > 0) return double.Parse(rows[0]["use_value"].ToString());
 
@@ -1102,7 +1288,6 @@ namespace SanguoshaServer.Game
         }
         public static double GetCardKeepValue(string name)
         {
-            Dictionary<string, double> result = new Dictionary<string, double>();
             DataRow[] rows = ai_values.Tables["card_values"].Select(string.Format("card_name = '{0}'", name));
             if (rows.Length > 0) return double.Parse(rows[0]["keep_value"].ToString());
 
@@ -1110,7 +1295,6 @@ namespace SanguoshaServer.Game
         }
         public static double GetCardPriority(string name)
         {
-            Dictionary<string, double> result = new Dictionary<string, double>();
             DataRow[] rows = ai_values.Tables["card_values"].Select(string.Format("card_name = '{0}'", name));
             if (rows.Length > 0) return double.Parse(rows[0]["priority"].ToString());
 

@@ -4,11 +4,12 @@ using CommonClassLibrary;
 using SanguoshaServer.Game;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using static CommonClass.Game.CardUseStruct;
 using static CommonClass.Game.Player;
-using static SanguoshaServer.Game.FunctionCard;
+using static SanguoshaServer.Package.FunctionCard;
 
 namespace SanguoshaServer.Package
 {
@@ -79,6 +80,7 @@ namespace SanguoshaServer.Package
                 new Biyue(),
                 new Luanji(),
                 new Shuangxiong(),
+                new ShuangxiongVH(),
                 new ShuangxiongGet(),
                 new Wansha(),
                 new WanshaProhibit(),
@@ -99,6 +101,7 @@ namespace SanguoshaServer.Package
                 new Sijian(),
                 new Suishi(),
                 new Kuangfu(),
+                new KuangfuJX(),
                 new Huoshui(),
                 new Qingcheng(),
                 new Zhiheng(),
@@ -143,6 +146,7 @@ namespace SanguoshaServer.Package
                 new QiaobianCard(),
                 new QiangxiCard(),
                 new QuhuCard(),
+                new JushouCard(),
                 new RendeCard(),
                 new FangquanCard(),
                 new ChuliCard(),
@@ -164,6 +168,7 @@ namespace SanguoshaServer.Package
                 new ZhijianCard(),
                 new FenxunCard(),
                 new YijiCard(),
+                new KuangfuCard(),
             };
             related_skills = new Dictionary<string, List<string>>
             {
@@ -175,7 +180,7 @@ namespace SanguoshaServer.Package
                 { "huoshou", new List<string> { "#sa_avoid_huoshou" } },
                 { "juxiang", new List<string> { "#sa_avoid_juxiang" } },
                 { "shuangxiong", new List<string> { "#shuangxiong-get" } },
-                { "lirang", new List<string>{ "#lirang-clear"} },
+                { "lirang", new List<string> { "#lirang-clear" } },
                 {"buqu", new List<string>{ "#buqu-clear" } },
                 {"haoshi", new List<string>{ "#haoshi-give" } },
                 {"guzheng", new List<string>{ "#guzheng-remove" } },
@@ -202,27 +207,43 @@ namespace SanguoshaServer.Package
                 { ".Equip", new ExpPattern("EquipCard")},
 
                 { ".Weapon", new ExpPattern("Weapon")},
-                { "slash", new ExpPattern("Slash")},
-                { "jink", new ExpPattern("Jink")},
-                { "peach", new ExpPattern("Peach")},
-                { "nullification", new ExpPattern("Nullification")},
+                { "slash", new ExpPattern(Slash.ClassName)},
+                { "jink", new ExpPattern(Jink.ClassName)},
+                { "peach", new ExpPattern(Peach.ClassName)},
+                { "nullification", new ExpPattern(Nullification.ClassName)},
                 { "peach+analeptic", new ExpPattern("Peach,Analeptic")}
             };
         }
     }
 }
 
-namespace SanguoshaServer.Game
+namespace SanguoshaServer.Package
 {
     public class ShowGeneralCard : SkillCard
     {
-        public ShowGeneralCard() : base("ShowGeneralCard")
+        public static string ClassName = "ShowGeneralCard";
+        public ShowGeneralCard() : base(ClassName)
         {
             target_fixed = true;
         }
         public override void OnUse(Room room, CardUseStruct card_use)
         {
             room.ShowSkill(card_use.From, card_use.Card.UserString, card_use.Card.SkillPosition);
+        }
+    }
+
+    public class YijiCard : SkillCard
+    {
+        public static string ClassName = "YijiCard";
+        public YijiCard() : base(ClassName)
+        {
+        }
+        public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
+        {
+            return targets.Count == 0 && card.UserString.Split('+').Contains(to_select.Name);
+        }
+        public override void Use(Room room, CardUseStruct card_use)
+        {
         }
     }
 
@@ -236,13 +257,26 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (base.Triggerable(player, room) && data is DamageStruct damage && damage.Card != null)
+            if (base.Triggerable(player, room) && data is DamageStruct damage && damage.Card != null && Engine.GetFunctionCard(damage.Card.Name).TypeID != CardType.TypeSkill)
             {
                 WrappedCard card = damage.Card;
-                List<int> table_cardids = room.GetCardIdsOnTable(card);
-                List<int> ids = card.SubCards;
+                List<int> table_cardids = room.GetCardIdsOnTable(room.GetSubCards(card));
+                List<int> ids = new List<int>(card.SubCards);
 
-                return table_cardids.Count != 0 && ids.SequenceEqual(table_cardids) ? new TriggerStruct(Name, player) : new TriggerStruct();
+                if (table_cardids.Count > 0 && ids.SequenceEqual(table_cardids))
+                {
+                    bool check = true;
+                    foreach (int id in card.SubCards)
+                    {
+                        if (room.GetCardPlace(id) != Place.PlaceTable)
+                        {
+                            check = false;
+                            break;
+                        }
+                    }
+
+                    if (check) return new TriggerStruct(Name, player);
+                }
             }
             return new TriggerStruct();
         }
@@ -259,7 +293,6 @@ namespace SanguoshaServer.Game
         {
             room.ObtainCard(target, damage.Card);
         }
-
     }
 
     class Fankui : MasochismSkill
@@ -291,7 +324,7 @@ namespace SanguoshaServer.Game
         public override void OnDamaged(Room room, Player simayi, DamageStruct damage, TriggerStruct info)
         {
             int card_id = room.AskForCardChosen(simayi, damage.From, "he", Name, false, HandlingMethod.MethodGet);
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, simayi.Name);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, simayi.Name);
             room.ObtainCard(simayi, room.GetCard(card_id), reason, false);
         }
 
@@ -365,7 +398,7 @@ namespace SanguoshaServer.Game
             JudgeStruct judge = new JudgeStruct
             {
                 Pattern = ".|heart",
-                Negative = true,
+                Negative = false,
                 Good = false,
                 Reason = Name,
                 PlayAnimation = true,
@@ -373,14 +406,13 @@ namespace SanguoshaServer.Game
             };
 
             room.Judge(ref judge);
-            if (from == null || !from.Alive) return;
-            if (judge.IsBad())
+            if (judge.IsGood() && from != null && from.Alive)
             {
                 bool discard = false;
                 if (from.HandcardNum >= 2)
                 {
                     from.SetFlags("ganglie_invoker");
-                    discard = room.AskForDiscard(from, Name, 2, 2, true);
+                    discard = room.AskForDiscard(from, null, Name, 2, 2, true);
                     from.SetFlags("-ganglie_invoker");
                 }
                 if (!discard)
@@ -425,13 +457,16 @@ namespace SanguoshaServer.Game
                     to_choose.Add(p);
             }
 
-            List<Player> choosees = room.AskForPlayersChosen(player, to_choose, Name, 0, 2, "@tuxi-card", true, info.SkillPosition);
-            if (choosees.Count > 0)
+            if (to_choose.Count > 0)
             {
-                room.SortByActionOrder(ref choosees);
-                room.SetTag("tuxi_invoke" + player.Name, choosees);
-                room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
-                return info;
+                List<Player> choosees = room.AskForPlayersChosen(player, to_choose, Name, 0, 2, "@tuxi-card", true, info.SkillPosition);
+                if (choosees.Count > 0)
+                {
+                    room.SortByActionOrder(ref choosees);
+                    room.SetTag("tuxi_invoke" + player.Name, choosees);
+                    room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
+                    return info;
+                }
             }
 
             return new TriggerStruct();
@@ -447,7 +482,7 @@ namespace SanguoshaServer.Game
                 Card_ids = new List<int> { id },
                 To = source.Name,
                 To_place = Place.PlaceHand,
-                Reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, source.Name, targets[0].Name, Name, null)
+                Reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, source.Name, targets[0].Name, Name, null)
             };
             List<CardsMoveStruct> moves = new List<CardsMoveStruct> { move1 };
             if (targets.Count == 2)
@@ -458,7 +493,7 @@ namespace SanguoshaServer.Game
                     Card_ids = new List<int> { id },
                     To = source.Name,
                     To_place = Place.PlaceHand,
-                    Reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, source.Name, targets[1].Name, Name, null)
+                    Reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, source.Name, targets[1].Name, Name, string.Empty)
                 };
                 moves.Add(move2);
             }
@@ -474,22 +509,23 @@ namespace SanguoshaServer.Game
             events = new List<TriggerEvent> { TriggerEvent.EventPhaseProceeding, TriggerEvent.PreCardUsed };
             skill_type = SkillType.Attack;
         }
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            if (triggerEvent == TriggerEvent.PreCardUsed && player != null && player.Alive && player.HasFlag(Name) && data is CardUseStruct use)
+            {
+                if (use.Card != null)
+                {
+                    FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
+                    if (fcard is Slash || fcard is Duel)
+                        room.SetCardFlag(use.Card, Name);
+                }
+            }
+        }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
             if (triggerEvent == TriggerEvent.EventPhaseProceeding && base.Triggerable(player, room) && player.Phase == PlayerPhase.Draw && (int)data > 0)
                 return new TriggerStruct(Name, player);
-            else
-            {
-                if (player != null && player.Alive && player.HasFlag("luoyi") && data is CardUseStruct use)
-                {
-                    if (use.Card != null)
-                    {
-                        FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
-                        if (fcard is Slash || fcard is Duel)
-                            room.SetCardFlag(use.Card, Name);
-                    }
-                }
-            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
@@ -542,10 +578,10 @@ namespace SanguoshaServer.Game
             DamageStruct damage = (DamageStruct)data;
             LogMessage log = new LogMessage
             {
-                Type = "#LuoyiBuff",
+                Type = "#AddDamage",
                 From = player.Name,
                 To = new List<string> { damage.To.Name },
-                Arg = damage.Damage.ToString(),
+                Arg = Name,
                 Arg2 = (++damage.Damage).ToString()
             };
             room.SendLog(log);
@@ -623,32 +659,25 @@ namespace SanguoshaServer.Game
             while (guojia.Alive && yiji_cards.Count > 0)
             {
                 guojia.PileChange("#yiji", yiji_cards);
-                if (!room.AskForYiji(guojia, yiji_cards, Name, true, false, true, -1,
-                                      room.GetOtherPlayers(guojia), null, null, "#yiji", false, info.SkillPosition))
+                if (!room.AskForYiji(guojia, yiji_cards, Name, true, false, true, -1, room.GetOtherPlayers(guojia), null, null, "#yiji", false, info.SkillPosition))
                     break;
 
-                guojia.PileChange("#yiji", origin_yiji, false);
+                guojia.Piles["#yiji"].Clear();
                 foreach (int id in origin_yiji)
-                {
                     if (room.GetCardPlace(id) != Place.DrawPile)
-                    {
                         yiji_cards.Remove(id);
-                    }
-                }
             }
-
-            guojia.PileChange("#yiji", yiji_cards, false);
+            if (guojia.GetPile("#yiji").Count > 0) guojia.Piles["#yiji"].Clear();
             if (yiji_cards.Count > 0 && guojia.Alive)
             {
-                foreach (int id in yiji_cards)
-                    room.ObtainCard(guojia, id, false);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GOTBACK, guojia.Name);
+                room.ObtainCard(guojia, ref yiji_cards, reason, false);
                 yiji_cards.Clear();
             }
 
             if (yiji_cards.Count > 0)
                 room.ReturnToDrawPile(yiji_cards, false);
         }
-
     }
 
     public class Luoshen : TriggerSkill
@@ -707,7 +736,7 @@ namespace SanguoshaServer.Game
                 if (room.GetCardPlace(id) == Place.PlaceTable && !subcards.Contains(id))
                     subcards.Add(id);
             if (subcards.Count > 0)
-                room.ObtainCard(zhenji, subcards, new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GOTBACK, zhenji.Name));
+                room.ObtainCard(zhenji, ref subcards, new CardMoveReason(MoveReason.S_REASON_GOTBACK, zhenji.Name));
 
             return false;
         }
@@ -749,7 +778,7 @@ namespace SanguoshaServer.Game
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player zhenji, ref object data, Player ask_who, TriggerStruct info)
         {
             JudgeStruct judge = (JudgeStruct)data;
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_JUDGEDONE, zhenji.Name, null, judge.Reason);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_JUDGEDONE, zhenji.Name, null, judge.Reason);
             room.MoveCardTo(judge.Card, null, Place.PlaceTable, reason, true);
 
             return false;
@@ -762,13 +791,13 @@ namespace SanguoshaServer.Game
         public Qingguo() : base("qingguo")
         {
             filter_pattern = ".|black|.|hand";
-            response_pattern = "jink";
+            response_pattern = Jink.ClassName;
             response_or_use = true;
             skill_type = SkillType.Defense;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard jink = new WrappedCard("Jink")
+            WrappedCard jink = new WrappedCard(Jink.ClassName)
             {
                 Skill = Name,
                 ShowSkill = Name
@@ -780,22 +809,22 @@ namespace SanguoshaServer.Game
     }
 
     public class ShensuCard : SkillCard
-
     {
-        public ShensuCard() : base("ShensuCard") { }
+        public static string ClassName = "ShensuCard";
+        public ShensuCard() : base(ClassName) { }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
-            WrappedCard slash = new WrappedCard("Slash")
+            WrappedCard slash = new WrappedCard(Slash.ClassName)
             {
                 Skill = "shensu",
                 DistanceLimited = false
             };
-            return Engine.GetFunctionCard(slash.Name).TargetFilter(room, targets, to_select, Self, slash);
+            return Slash.Instance.TargetFilter(room, targets, to_select, Self, slash);
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
             List<Player> targets = new List<Player>(card_use.To);
-            WrappedCard slash = new WrappedCard("Slash")
+            WrappedCard slash = new WrappedCard(Slash.ClassName)
             {
                 Skill = "_shensu",
                 DistanceLimited = false
@@ -837,7 +866,7 @@ namespace SanguoshaServer.Game
             {
                 if (cards.Count == 0)
                 {
-                    WrappedCard card = new WrappedCard("ShensuCard")
+                    WrappedCard card = new WrappedCard(ShensuCard.ClassName)
                     {
                         Skill = Name
                     };
@@ -846,7 +875,7 @@ namespace SanguoshaServer.Game
             }
             else if (cards.Count == 1)
             {
-                WrappedCard card = new WrappedCard("ShensuCard")
+                WrappedCard card = new WrappedCard(ShensuCard.ClassName)
                 {
                     Skill = Name
                 };
@@ -888,7 +917,7 @@ namespace SanguoshaServer.Game
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player xiahouyuan, ref object data, Player ask_who, TriggerStruct info)
         {
             PhaseChangeStruct change = (PhaseChangeStruct)data;
-            if (change.To == PlayerPhase.Judge && room.AskForUseCard(xiahouyuan, "@@shensu1", "@shensu1", 1, HandlingMethod.MethodUse, true, info.SkillPosition) != null)
+            if (change.To == PlayerPhase.Judge && room.AskForUseCard(xiahouyuan, "@@shensu1", "@shensu1", null, 1, HandlingMethod.MethodUse, true, info.SkillPosition) != null)
             {
                 if (xiahouyuan.HasFlag("shensu1") && room.ContainsTag("shensu_invoke" + xiahouyuan.Name))
                 {
@@ -897,7 +926,7 @@ namespace SanguoshaServer.Game
                     return info;
                 }
             }
-            else if (change.To == PlayerPhase.Play && room.AskForUseCard(xiahouyuan, "@@shensu2", "@shensu2", 2, HandlingMethod.MethodDiscard, true, info.SkillPosition) != null)
+            else if (change.To == PlayerPhase.Play && room.AskForUseCard(xiahouyuan, "@@shensu2", "@shensu2", null, 2, HandlingMethod.MethodDiscard, true, info.SkillPosition) != null)
             {
                 if (xiahouyuan.HasFlag("shensu2") && room.ContainsTag("shensu_invoke" + xiahouyuan.Name))
                 {
@@ -922,7 +951,7 @@ namespace SanguoshaServer.Game
                 room.RemoveTag("shensu_invoke" + player.Name);
             }
 
-            WrappedCard slash = new WrappedCard("Slash")
+            WrappedCard slash = new WrappedCard(Slash.ClassName)
             {
                 Skill = "_shensu",
                 DistanceLimited = false
@@ -931,15 +960,17 @@ namespace SanguoshaServer.Game
             room.UseCard(new CardUseStruct(slash, player, targets));
             return false;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card)
+
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
         {
-            return card.SubCards.Count + 1;
+            index = card.SubCards.Count + 1;
         }
     }
 
     public class QiaobianCard : SkillCard
     {
-        public QiaobianCard() : base("QiaobianCard")
+        public static string ClassName = "QiaobianCard";
+        public QiaobianCard() : base(ClassName)
         {
         }
 
@@ -1001,7 +1032,7 @@ namespace SanguoshaServer.Game
                     Card_ids = new List<int> { id },
                     To = card_use.From.Name,
                     To_place = Place.PlaceHand,
-                    Reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, card_use.From.Name, targets[0].Name, "qiaobian", null)
+                    Reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, card_use.From.Name, targets[0].Name, "qiaobian", null)
                 };
                 moves.Add(move1);
                 if (targets.Count == 2)
@@ -1012,7 +1043,7 @@ namespace SanguoshaServer.Game
                         Card_ids = new List<int> { id },
                         To = card_use.From.Name,
                         To_place = Place.PlaceHand,
-                        Reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, card_use.From.Name, targets[1].Name, "qiaobian", null)
+                        Reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, card_use.From.Name, targets[1].Name, "qiaobian", null)
                     };
                     moves.Add(move2);
                 }
@@ -1027,6 +1058,7 @@ namespace SanguoshaServer.Game
                 if (from.GetCards("ej").Count == 0)
                     return;
 
+                room.SetTag("QiaobianTarget", from);
                 int card_id = room.AskForCardChosen(card_use.From, from, "ej", "qiaobian");
                 WrappedCard card = room.GetCard(card_id);
                 Place place = room.GetCardPlace(card_id);
@@ -1047,34 +1079,27 @@ namespace SanguoshaServer.Game
                         if (p.GetEquip(equip_index) < 0 && RoomLogic.CanPutEquip(p, card))
                             tos.Add(p);
                     }
-                    else
-                    {
-                        if (RoomLogic.IsProhibited(room, card_use.From, p, card) == null && !RoomLogic.PlayerContainsTrick(room, p, card.Name))
+                    else if (RoomLogic.IsProhibited(room, null, p, card) == null && !RoomLogic.PlayerContainsTrick(room, p, card.Name) && p.JudgingAreaAvailable)
                             tos.Add(p);
-                    }
                 }
 
-                room.SetTag("QiaobianTarget", from);
                 string position = card_use.Card.SkillPosition;
                 Player to = room.AskForPlayerChosen(card_use.From, tos, "qiaobian", "@qiaobian-to:::" + card.Name, false, false, position);
                 if (to != null)
                 {
-                    room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, from.Name, to.Name);
-                    CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_TRANSFER, card_use.From.Name, "qiaobian", null);
-                    room.MoveCardTo(card, from, to, place, reason);
-
-                    if (place == Place.PlaceDelayedTrick)
+                    if ((place == Place.PlaceDelayedTrick && from != card_use.From) || (place == Place.PlaceEquip && to != card_use.From))
                     {
-                        CardUseStruct use = new CardUseStruct(card, null, to);
-                        object _data = use;
-                        room.RoomThread.Trigger(TriggerEvent.TargetConfirming, room, to, ref _data);
-                        CardUseStruct new_use = (CardUseStruct)_data;
-                        if (new_use.To.Count == 0)
-                            fcard.OnNullified(room, to, card);
-
-                        foreach (Player p in room.GetAllPlayers())
-                            room.RoomThread.Trigger(TriggerEvent.TargetConfirmed, room, p, ref _data);
+                        ResultStruct result = card_use.From.Result;
+                        result.Assist++;
+                        card_use.From.Result = result;
                     }
+
+                    room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, from.Name, to.Name);
+                    CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_TRANSFER, card_use.From.Name, "qiaobian", null)
+                    {
+                        Card = card
+                    };
+                    room.MoveCardTo(card, from, to, place, reason);
                 }
                 room.RemoveTag("QiaobianTarget");
             }
@@ -1085,11 +1110,15 @@ namespace SanguoshaServer.Game
     {
         public QiaobianViewAsSkill() : base("qiaobian")
         {
-            response_pattern = "@@qiaobian";
+        }
+
+        public override bool IsAvailable(Room room, Player invoker, CardUseReason reason, string pattern, string position = null)
+        {
+            return reason == CardUseReason.CARD_USE_REASON_RESPONSE_USE && pattern == "@@qiaobian";
         }
         public override WrappedCard ViewAs(Room room, Player player)
         {
-            WrappedCard card = new WrappedCard("QiaobianCard")
+            WrappedCard card = new WrappedCard(QiaobianCard.ClassName)
             {
                 Skill = Name,
                 Mute = true
@@ -1166,7 +1195,7 @@ namespace SanguoshaServer.Game
             if (index == 2 || index == 3)
             {
                 string use_prompt = string.Format("@qiaobian-{0}", index);
-                room.AskForUseCard(player, "@@qiaobian", use_prompt, index, HandlingMethod.MethodUse, true, info.SkillPosition);
+                room.AskForUseCard(player, "@@qiaobian", use_prompt, null, index, HandlingMethod.MethodUse, true, info.SkillPosition);
             }
             return false;
         }
@@ -1188,14 +1217,14 @@ namespace SanguoshaServer.Game
         {
             if (room.GetRoomState().GetCurrentCardUseReason() == CardUseReason.CARD_USE_REASON_RESPONSE_USE)
             {
-                WrappedCard card = new WrappedCard("SupplyShortage");
+                WrappedCard card = new WrappedCard(SupplyShortage.ClassName);
                 if (Engine.MatchExpPattern(room, pattern, player, card)) return true;
             }
             return false;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard shortage = new WrappedCard("SupplyShortage")
+            WrappedCard shortage = new WrappedCard(SupplyShortage.ClassName)
             {
                 Skill = Name,
                 ShowSkill = Name
@@ -1216,7 +1245,7 @@ namespace SanguoshaServer.Game
         }
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
-            if (data is CardUseStruct use && use.Card.Name == "SupplyShortage" && base.Triggerable(player, room)
+            if (data is CardUseStruct use && use.Card.Name == SupplyShortage.ClassName && base.Triggerable(player, room)
                 && use.To.Count > 0 && RoomLogic.DistanceTo(room, player, use.To[0]) > 2)
             {
                 player.SetFlags(Name);
@@ -1232,14 +1261,21 @@ namespace SanguoshaServer.Game
     {
         public DuanliangTargetMod() : base("#duanliang-target")
         {
-            pattern = "SupplyShortage";
+            pattern = SupplyShortage.ClassName;
         }
-        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card)
+        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card, CardUseReason reason, string pattern)
         {
             if (RoomLogic.PlayerHasSkill(room, from, "duanliang") && !from.HasFlag("duanliang"))
                 return true;
             else
                 return false;
+        }
+
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ModType type, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = -1;
+            if (type == ModType.DistanceLimit && card.Skill == "duanliang")
+                index = -2;
         }
     }
 
@@ -1247,6 +1283,7 @@ namespace SanguoshaServer.Game
     {
         public Jushou() : base("jushou")
         {
+            view_as_skill = new JushouVS();
             frequency = Frequency.Frequent;
             skill_type = SkillType.Defense;
         }
@@ -1267,39 +1304,99 @@ namespace SanguoshaServer.Game
         public override bool OnPhaseChange(Room room, Player caoren, TriggerStruct info)
         {
             List<string> kingdoms = new List<string>();
-            foreach (Player p in room.Players)
+            foreach (Player p in room.GetAlivePlayers())
                 if (p.HasShownOneGeneral() && !kingdoms.Contains(p.Kingdom))
                     kingdoms.Add(p.Kingdom);
 
             room.DrawCards(caoren, kingdoms.Count, Name);
 
-            List<int> ids = room.AskForExchange(caoren, Name, 1, 1, "@jxjushou", null, ".!", info.SkillPosition);
+            List<int> ids = caoren.GetCardCount(false) == 1 ? caoren.GetCards("h") : new List<int>();
+            if (ids.Count == 0)
+            {
+                WrappedCard use = room.AskForUseCard(caoren, "@@jushou", "@jushou", null, -1, HandlingMethod.MethodUse, true, info.SkillPosition);
+                if (use != null)
+                    ids = new List<int>(use.SubCards);
+                else
+                    ids = room.ForceToDiscard(caoren, caoren.GetCards("h"), 1);
+            }
+
             if (ids.Count == 1)
             {
-                WrappedCard card = room.GetCard(ids[0]);
-                FunctionCard fcard = Engine.GetFunctionCard(card.Name);
-                if (fcard is EquipCard && fcard.IsAvailable(room, caoren, card))
-                    room.UseCard(new CardUseStruct(card, caoren, new List<Player>(), true));
-                else
-                {
-                    GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, caoren, info.SkillPosition);
-                    CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_DISCARD, caoren.Name, null, Name, null)
+                    int id = ids[0];
+                    WrappedCard card = room.GetCard(id);
+
+                    bool discard = true;
+                    FunctionCard fcard = Engine.GetFunctionCard(card.Name);
+                    if (fcard is EquipCard && fcard.IsAvailable(room, caoren, card))
                     {
-                        General = gsk
-                    };
-                    room.ThrowCard(ref ids, reason, caoren, caoren);
-                }
+                        if (RoomLogic.CanDiscard(room, caoren, caoren, id))
+                            discard = room.AskForChoice(caoren, Name, "use+discard") == "discard";
+                        else
+                            discard = false;
+                    }
+
+                    if (discard)
+                    {
+                        GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, caoren, info.SkillPosition);
+                        CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_DISCARD, caoren.Name, null, Name, null)
+                        {
+                            General = gsk
+                        };
+                        room.ThrowCard(ref ids, reason, caoren, caoren);
+                    }
+                    else
+                        room.UseCard(new CardUseStruct(card, caoren, new List<Player>(), true));
             }
+
             if (kingdoms.Count > 2)
                 room.TurnOver(caoren);
             return false;
         }
+    }
 
+    public class JushouVS : OneCardViewAsSkill
+    {
+        public JushouVS() : base("jushou")
+        {
+            response_pattern = "@@jushou";
+        }
+
+        public override bool ViewFilter(Room room, WrappedCard to_select, Player player)
+        {
+            FunctionCard fcard = Engine.GetFunctionCard(to_select.Name);
+            return room.GetCardPlace(to_select.Id) == Place.PlaceHand && (fcard is EquipCard && fcard.IsAvailable(room, player, to_select)
+                || RoomLogic.CanDiscard(room, player, player, to_select.Id));
+        }
+
+        public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
+        {
+            WrappedCard jushou = new WrappedCard(JushouCard.ClassName)
+            {
+                Mute = true,
+                Skill = Name
+            };
+            jushou.AddSubCard(card);
+            return jushou;
+        }
+    }
+
+    public class JushouCard : SkillCard
+    {
+        public static string ClassName = "JushouCard";
+        public JushouCard() : base(ClassName)
+        {
+            target_fixed = true;
+        }
+
+        public override void OnUse(Room room, CardUseStruct card_use)
+        {
+        }
     }
 
     public class QiangxiCard : SkillCard
     {
-        public QiangxiCard() : base("QiangxiCard")
+        public static string ClassName = "QiangxiCard";
+        public QiangxiCard() : base(ClassName)
         {
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
@@ -1330,7 +1427,7 @@ namespace SanguoshaServer.Game
         }
         public override bool IsEnabledAtPlay(Room room, Player player)
         {
-            return !player.HasUsed("QiangxiCard");
+            return !player.HasUsed(QiangxiCard.ClassName);
         }
         public override bool ViewFilter(Room room, List<WrappedCard> selected, WrappedCard to_select, Player player)
         {
@@ -1341,7 +1438,7 @@ namespace SanguoshaServer.Game
         {
             if (cards.Count == 0)
             {
-                WrappedCard card = new WrappedCard("QiangxiCard")
+                WrappedCard card = new WrappedCard(QiangxiCard.ClassName)
                 {
                     Skill = Name,
                     ShowSkill = Name
@@ -1350,7 +1447,7 @@ namespace SanguoshaServer.Game
             }
             else if (cards.Count == 1)
             {
-                WrappedCard card = new WrappedCard("QiangxiCard")
+                WrappedCard card = new WrappedCard(QiangxiCard.ClassName)
                 {
                     Skill = Name,
                     ShowSkill = Name
@@ -1361,9 +1458,10 @@ namespace SanguoshaServer.Game
             else
                 return null;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card)
+
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
         {
-            return 2 - card.SubCards.Count;
+            index = 2 - card.SubCards.Count;
         }
     }
 
@@ -1374,15 +1472,15 @@ namespace SanguoshaServer.Game
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
-            return targets.Count == 0 && to_select.Hp > Self.Hp && !to_select.IsKongcheng();
+            return targets.Count == 0 && to_select.Hp > Self.Hp && RoomLogic.CanBePindianBy(room, to_select, Self);
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
             Player target = card_use.To[0];
             PindianStruct pd = room.PindianSelect(card_use.From, target, "quhu");
-            bool success = room.Pindian(pd);
+            room.Pindian(ref pd);
 
-            if (success)
+            if (pd.Success)
             {
                 room.SetTag("quhu", target);
                 List<Player> players = room.GetOtherPlayers(target), wolves = new List<Player>();
@@ -1525,11 +1623,11 @@ namespace SanguoshaServer.Game
             if (player.IsNude() || caopi == player)
                 return false;
 
-            List<int> ids = new List<int>(player.HandCards);
+            List<int> ids= player.GetCards("h");
             ids.AddRange(player.GetEquips());
 
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_RECYCLE, caopi.Name);
-            room.ObtainCard(caopi, ids, reason, false);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_RECYCLE, caopi.Name);
+            room.ObtainCard(caopi, ref ids, reason, false);
 
             return false;
         }
@@ -1597,30 +1695,28 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            List<int> ints = new List<int>(room.AskForExchange(ask_who, Name, 1, 0, "@xiaoguo", null, "BasicCard!", info.SkillPosition));
+            List<int> ints = new List<int>(room.AskForExchange(ask_who, Name, 1, 0, "@xiaoguo:" + player.Name, null, "BasicCard!", info.SkillPosition));
             if (ints.Count == 1)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_DISMANTLE, ask_who.Name, ask_who.Name, Name, null);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_DISMANTLE, ask_who.Name, ask_who.Name, Name, null)
+                {
+                    General = RoomLogic.GetGeneralSkin(room, ask_who, Name, info.SkillPosition)
+                };
                 room.ThrowCard(ref ints, reason, ask_who, null, Name);
                 room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, ask_who.Name, player.Name);
-                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
-                room.BroadcastSkillInvoke(Name, "male", 1, gsk.General, gsk.SkinId);
+                room.BroadcastSkillInvoke(Name, ask_who, info.SkillPosition);
                 return info;
             }
             return new TriggerStruct();
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
-            if (room.AskForCard(player, Name, ".Equip", "@xiaoguo-discard", null) == null)
-            {
-                room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
-                room.Damage(new DamageStruct("xiaoguo", ask_who, player));
-            }
-            else
-            {
-                room.BroadcastSkillInvoke(Name, "male", 3, gsk.General, gsk.SkinId);
-            }
+            room.SetTag(Name, ask_who);
+            WrappedCard card = room.AskForCard(player, Name, ".Equip", "@xiaoguo-discard:" + ask_who.Name, null);
+            room.RemoveTag(Name);
+            if (card == null)
+                room.Damage(new DamageStruct(Name, ask_who, player));
+
             return false;
         }
     }
@@ -1633,7 +1729,6 @@ namespace SanguoshaServer.Game
         public RendeCard() : base("RendeCard")
         {
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -1646,8 +1741,13 @@ namespace SanguoshaServer.Game
         public override void Use(Room room, CardUseStruct card_use)
         {
             Player target = card_use.To[0];
+
+            ResultStruct result = card_use.From.Result;
+            result.Assist += card_use.Card.SubCards.Count;
+            card_use.From.Result = result;
+
             target.SetFlags("rende_" + card_use.From.Name);
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, card_use.From.Name, target.Name, "rende", null);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, card_use.From.Name, target.Name, "rende", null);
             room.ObtainCard(target, card_use.Card, reason, false);
 
             int old_value = card_use.From.GetMark("rende");
@@ -1655,7 +1755,7 @@ namespace SanguoshaServer.Game
             room.SetPlayerMark(card_use.From, "rende", new_value);
 
             if (old_value < 2 && new_value >= 2)
-                room.AskForUseCard(card_use.From, "@@rende", "@rende", -1, HandlingMethod.MethodUse, true, card_use.Card.Skill);
+                room.AskForUseCard(card_use.From, "@@rende", "@rende", null, -1, HandlingMethod.MethodUse, true, card_use.Card.Skill);
         }
     }
 
@@ -1703,7 +1803,7 @@ namespace SanguoshaServer.Game
                 List<string> names = GetGuhuoCards(room, "b");
                 foreach (string name in names)
                 {
-                    if (name == "Jink") continue;
+                    if (name == Jink.ClassName) continue;
                     WrappedCard card = new WrappedCard(name)
                     {
                         Skill = "_rende"
@@ -1729,13 +1829,15 @@ namespace SanguoshaServer.Game
             if (triggerEvent == TriggerEvent.PreCardUsed && data is CardUseStruct use)
             {
                 FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
-                if (fcard is Slash && RoomLogic.IsVirtualCard(room, use.Card) && use.Card.SubCards.Count == 0 && use.Card.Skill == Name)
-                    player.AddHistory("Slash");
+                if (fcard is Slash && use.Card.IsVirtualCard() && use.Card.SubCards.Count == 0 && use.Card.Skill == Name)
+                    player.AddHistory(Slash.ClassName);
             }
-            else if (triggerEvent == TriggerEvent.EventPhaseChanging && player.GetMark(Name) > 0 && data is PhaseChangeStruct change)
+            else if (triggerEvent == TriggerEvent.EventPhaseChanging && player.GetMark(Name) > 0 && data is PhaseChangeStruct change && change.From == PlayerPhase.Play)
             {
-                if (change.To == PlayerPhase.NotActive)
-                    player.SetMark(Name, 0);
+                player.SetMark(Name, 0);
+                foreach (Player p in room.GetAlivePlayers())
+                    if (p.HasFlag("rende_" + player.Name))
+                        p.SetFlags("-rende_" + player.Name);
             }
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
@@ -1757,7 +1859,7 @@ namespace SanguoshaServer.Game
         }
         public override bool IsEnabledAtResponse(Room room, Player player, string pattern)
         {
-            return pattern == "Slash";
+            return Engine.GetPattern(pattern).GetPatternString() == Slash.ClassName;
         }
         public override bool ViewFilter(Room room, WrappedCard card, Player player)
         {
@@ -1768,7 +1870,7 @@ namespace SanguoshaServer.Game
 
             if (room.GetRoomState().GetCurrentCardUseReason() == CardUseReason.CARD_USE_REASON_PLAY)
             {
-                WrappedCard slash = new WrappedCard("Slash");
+                WrappedCard slash = new WrappedCard(Slash.ClassName);
                 slash.AddSubCard(card);
                 return Slash.IsAvailable(room, player, slash);
             }
@@ -1776,11 +1878,28 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard slash = new WrappedCard("Slash");
+            WrappedCard slash = new WrappedCard(Slash.ClassName)
+            {
+                Skill = Name,
+                ShowSkill = Name
+            };
             slash.AddSubCard(card);
-            slash.Skill = Name;
-            slash.ShowSkill = Name;
+            slash = RoomLogic.ParseUseCard(room, slash);
             return slash;
+        }
+
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = -1;
+            if (!WrappedCard.IsRed(card.Suit))
+            {
+                Player lord = RoomLogic.GetLord(room, player.Kingdom);
+                if (lord != null && RoomLogic.PlayerHasSkill(room, lord, "shouyue") && lord.General1Showed)
+                {
+                    room.NotifySkillInvoked(lord, "shouyue");
+                    room.BroadcastSkillInvoke("shouyue", lord, "head");
+                }
+            }
         }
     }
 
@@ -1814,10 +1933,13 @@ namespace SanguoshaServer.Game
                 if (fcard is Slash)
                     player.AddMark(Name);
             }
-            else if (triggerEvent == TriggerEvent.EventPhaseChanging && player.GetMark(Name) > 0 && data is PhaseChangeStruct change)
+            else if (triggerEvent == TriggerEvent.EventPhaseChanging && data is PhaseChangeStruct change && change.To == PlayerPhase.NotActive)
             {
-                if (change.To == PlayerPhase.NotActive)
-                    player.SetMark(Name, 0);
+                foreach (Player p in room.GetAlivePlayers())
+                {
+                    if (p.GetMark(Name) > 0)
+                        p.SetMark(Name, 0);
+                }
             }
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
@@ -1859,6 +1981,7 @@ namespace SanguoshaServer.Game
             {
                 Player lord = RoomLogic.GetLord(room, ask_who.Kingdom);
                 room.NotifySkillInvoked(lord, "shouyue");
+                room.BroadcastSkillInvoke("shouyue", lord, "head");
                 target.AddQinggangTag(RoomLogic.CardToString(room, use.Card));
             }
             else
@@ -1972,7 +2095,7 @@ namespace SanguoshaServer.Game
             room.SendLog(log, new List<Player> { zhuge });
 
             string skill_name = Name;
-            if (RoomLogic.PlayerHasSkill(room, zhuge, "yizhi") && !zhuge.General1Showed)
+            if (RoomLogic.PlayerHasSkill(room, zhuge, "yizhi") && !zhuge.General1Showed || !RoomLogic.InPlayerHeadSkills(zhuge, Name))
                 skill_name = "yizhi";
             room.AskForGuanxing(zhuge, guanxing, skill_name, true, info.SkillPosition);
 
@@ -1999,7 +2122,7 @@ namespace SanguoshaServer.Game
             if (triggerEvent == TriggerEvent.EventPhaseProceeding && player.Phase == PlayerPhase.Draw && player.GetPile(Name).Count > 0)
             {
                 CardsMoveStruct move = new CardsMoveStruct(player.GetPile(Name), player, Place.PlaceHand,
-                    new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXCHANGE_FROM_PILE, player.Name));
+                    new CardMoveReason(MoveReason.S_REASON_EXCHANGE_FROM_PILE, player.Name));
                 room.MoveCardsAtomic(new List<CardsMoveStruct> { move }, false);
             }
         }
@@ -2013,33 +2136,33 @@ namespace SanguoshaServer.Game
             }
             else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move)
             {
-                if (move.To != null && base.Triggerable(move.To, room) && move.To.IsKongcheng() && move.To_place == Place.PlaceHand && move.Card_ids.Count > 0
-                    && move.Reason.Reason == CardMoveReason.MoveReason.S_REASON_GIVE)
-                    return new TriggerStruct(Name, player);
+                if (move.To != null && base.Triggerable(move.To, room) && move.To.Phase == PlayerPhase.NotActive && move.To_place == Place.PlaceHand && move.Card_ids.Count > 0
+                    && (move.Reason.Reason == MoveReason.S_REASON_GIVE || move.Reason.Reason == MoveReason.S_REASON_PREVIEWGIVE))
+                    return new TriggerStruct(Name, move.To);
             }
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, null, info.SkillPosition))
+            if (RoomLogic.PlayerHasShownSkill(room, ask_who, Name) || room.AskForSkillInvoke(ask_who, Name, null, info.SkillPosition))
             {
-                room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
+                room.BroadcastSkillInvoke(Name, ask_who, info.SkillPosition);
                 return info;
             }
             return new TriggerStruct();
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
+            room.SendCompulsoryTriggerLog(ask_who, Name);
             if (triggerEvent == TriggerEvent.TargetConfirming && data is CardUseStruct use)
             {
                 room.CancelTarget(ref use, player); // Room::cancelTarget(use, player);
-
                 data = use;
+                return true;
             }
             else if(triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move)
             {
-                room.SendCompulsoryTriggerLog(move.To, Name);
-                room.AddToPile(move.To, Name, move.Card_ids, false);
+                room.AddToPile(ask_who, Name, new List<int>(move.Card_ids), false);
             }
 
             return false;
@@ -2057,14 +2180,14 @@ namespace SanguoshaServer.Game
             switch (room.GetRoomState().GetCurrentCardUseReason())
             {
                 case CardUseReason.CARD_USE_REASON_PLAY:
-                    return card.Name == "Jink";
+                    return card.Name == Jink.ClassName;
                 case CardUseReason.CARD_USE_REASON_RESPONSE:
                 case CardUseReason.CARD_USE_REASON_RESPONSE_USE:
                     string pattern = room.GetRoomState().GetCurrentCardUsePattern();
                     pattern = Engine.GetPattern(pattern).GetPatternString();
-                    if (pattern == "Slash")
-                        return card.Name == "Jink";
-                    else if (pattern == "Jink")
+                    if (pattern == Slash.ClassName)
+                        return card.Name == Jink.ClassName;
+                    else if (pattern == Jink.ClassName)
                     {
                         FunctionCard fcard = Engine.GetFunctionCard(card.Name);
                         return fcard is Slash;
@@ -2083,14 +2206,14 @@ namespace SanguoshaServer.Game
         public override bool IsEnabledAtResponse(Room room, Player player, string pattern)
         {
             pattern = Engine.GetPattern(pattern).GetPatternString();
-            return pattern == "Jink" || pattern == "Slash";
+            return pattern == Jink.ClassName || pattern == Slash.ClassName;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard originalCard, Player player)
         {
             FunctionCard fcard = Engine.GetFunctionCard(originalCard.Name);
             if (fcard is Slash)
             {
-                WrappedCard jink = new WrappedCard("Jink");
+                WrappedCard jink = new WrappedCard(Jink.ClassName);
                 jink.AddSubCard(originalCard);
                 jink.Skill = Name;
                 jink.ShowSkill = Name;
@@ -2099,7 +2222,7 @@ namespace SanguoshaServer.Game
             }
             else if (fcard is Jink)
             {
-                WrappedCard slash = new WrappedCard("Slash");
+                WrappedCard slash = new WrappedCard(Slash.ClassName);
                 slash.AddSubCard(originalCard);
                 slash.Skill = Name;
                 slash.ShowSkill = Name;
@@ -2150,6 +2273,7 @@ namespace SanguoshaServer.Game
         {
             if (triggerEvent == TriggerEvent.SlashMissed && data is SlashEffectStruct effect)
             {
+                ask_who.SetTag(Name, player.Name);
                 List<Player> targets = new List<Player>();
                 string prompt;
                 if (player == ask_who)
@@ -2198,7 +2322,7 @@ namespace SanguoshaServer.Game
                             Who = ask_who,
                             Recover = 1
                         };
-                        room.Recover(target, recover);
+                        room.Recover(target, recover, true);
                     }
                 }
             }
@@ -2206,19 +2330,21 @@ namespace SanguoshaServer.Game
             {
                 Player lord = RoomLogic.GetLord(room, player.Kingdom);
                 room.NotifySkillInvoked(lord, "shouyue");
+                room.BroadcastSkillInvoke("shouyue", lord, "head");
                 room.DrawCards(player, new DrawCardStruct(1, lord, "shouyue"));
             }
             return false;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card)
+
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
         {
-            if (card.Name == "Slash")
+            if (card.Name == Slash.ClassName)
             {
-                return 1;
+                index = 1;
             }
             else
             {
-                return 2;
+                index = 2;
             }
         }
     }
@@ -2246,8 +2372,8 @@ namespace SanguoshaServer.Game
             {
                 foreach (Player p in room.Players)
                 {
-                    if (p.GetMark("@tieqi1") > 0) p.SetMark("@tieqi1", 0);
-                    if (p.GetMark("@tieqi2") > 0) p.SetMark("@tieqi2", 0);
+                    if (p.GetMark("@tieqi1") > 0) room.SetPlayerMark(p, "@tieqi1", 0);
+                    if (p.GetMark("@tieqi2") > 0) room.SetPlayerMark(p, "@tieqi2", 0);
                 }
             }
         }
@@ -2266,7 +2392,7 @@ namespace SanguoshaServer.Game
             if (room.AskForSkillInvoke(player, Name, skill_target, info.SkillPosition))
             {
                 GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
-                room.BroadcastSkillInvoke(Name, "male", 1,  gsk.General, gsk.SkinId);
+                room.BroadcastSkillInvoke(Name, "male", 1, gsk.General, gsk.SkinId);
                 return info;
             }
             return new TriggerStruct();
@@ -2279,11 +2405,8 @@ namespace SanguoshaServer.Game
             return false;
         }
 
-
         private void DoTieqi(Room room, Player target, Player source, ref CardUseStruct use, TriggerStruct info)
         {
-            int index = use.To.IndexOf(target);
-
             JudgeStruct judge = new JudgeStruct
             {
                 Reason = "tieqi",
@@ -2307,10 +2430,11 @@ namespace SanguoshaServer.Game
                 Player lord = RoomLogic.GetLord(room, source.Kingdom);
                 if (lord != null && RoomLogic.PlayerHasSkill(room, lord, "shouyue") && lord.General1Showed)
                 {
-                    target.SetMark("@tieqi1", 1);
-                    target.SetMark("@tieqi2", 1);
+                    room.SetPlayerMark(target, "@tieqi1", 1);
+                    room.SetPlayerMark(target, "@tieqi2", 1);
                     haslord = true;
                     room.NotifySkillInvoked(lord, "shouyue");
+                    room.BroadcastSkillInvoke("shouyue", lord, "head");
                 }
             }
 
@@ -2318,15 +2442,15 @@ namespace SanguoshaServer.Game
             {
                 string general = room.AskForGeneral(source, choices, null, true, Name, target, false, true);
                 if (general == target.General1)
-                    target.SetMark("@tieqi1", 1);
+                    room.SetPlayerMark(target, "@tieqi1", 1);
                 else
-                    target.SetMark("@tieqi2", 1);
+                    room.SetPlayerMark(target, "@tieqi2", 1);
             }
 
             string suit = WrappedCard.GetSuitString(judge.Card.Suit);
             LogMessage l = new LogMessage
             {
-                Type = "#jtieqijudge",
+                Type = "#tieqijudge",
                 From = source.Name,
                 Arg = Name,
                 Arg2 = WrappedCard.GetSuitString(judge.Card.Suit)
@@ -2335,8 +2459,9 @@ namespace SanguoshaServer.Game
             target.SetTag("tieqi_judge", judge.Card.Id);
 
             if (room.AskForCard(target, Name,
-                string.Format("..{0}", suit.Substring(1, 1).ToUpper()),
-                string.Format("@tieqi-discard:{0}:{1}_char", suit, suit), judge.Card) == null)
+                string.Format("..{0}", suit.Substring(0, 1).ToUpper()),
+                string.Format("@tieqi-discard:::{0}", string.Format("<color={0}>{1}</color>", WrappedCard.IsBlack(judge.Card.Suit) ? "black" : "red", WrappedCard.GetSuitIcon(judge.Card.Suit))),
+                judge.Card) == null)
             {
                 LogMessage log = new LogMessage
                 {
@@ -2347,32 +2472,28 @@ namespace SanguoshaServer.Game
 
                 GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, source, Name, info.SkillPosition);
                 room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
-                
-                bool done = false;
+
+                int index = 0;
                 for (int i = 0; i < use.EffectCount.Count; i++)
                 {
-                    EffctCount effect = use.EffectCount[i];
-                    if (effect.Index == index)
+                    CardBasicEffect effect = use.EffectCount[i];
+                    if (effect.To == target)
                     {
-                        effect.Count = 0;
-                        done = true;
-                        use.EffectCount[i] = effect;
+                        index++;
+                        if (index == info.Times)
+                        {
+                            effect.Effect2 = 0;
+                            break;
+                        }
                     }
                 }
-                if (!done)
-                {
-                    EffctCount effect = new EffctCount(source, target, 0)
-                    {
-                        Index = index
-                    };
-                    use.EffectCount.Add(effect);
-                }
+
                 Thread.Sleep(500);
             }
             else {
                 LogMessage log = new LogMessage
                 {
-                    Type = "#jtieqidis",
+                    Type = "#tieqidis",
                     From = target.Name,
                     Arg = Name,
                     Arg2 = suit
@@ -2390,6 +2511,9 @@ namespace SanguoshaServer.Game
 
         public override bool Invalid(Room room, Player player, string skill)
         {
+            Skill s = Engine.GetSkill(skill);
+            if (s == null || s.SkillFrequency == Frequency.Compulsory || s.Attached_lord_skill) return false;
+            if (player.HasEquip(skill)) return false;
             if (player.GetMark("@tieqi1") > 0)
             {
                 if (player.HeadSkills.ContainsKey(skill) && (!player.DeputySkills.ContainsKey(skill) || player.GetMark("@tieqi2") > 0))
@@ -2417,7 +2541,7 @@ namespace SanguoshaServer.Game
                 FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
                 if (fcard.IsNDTrick())
                 {
-                    if (!RoomLogic.IsVirtualCard(room, use.Card) || use.Card.SubCards.Count == 0)
+                    if (!use.Card.IsVirtualCard() || use.Card.SubCards.Count == 0)
                         return new TriggerStruct(Name, player);
                 }
             }
@@ -2446,15 +2570,9 @@ namespace SanguoshaServer.Game
             pattern = "TrickCard";
             skill_type = SkillType.Wizzard;
         }
-        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card)
+        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card, CardUseReason reason, string pattern)
         {
-            if (!Engine.MatchExpPattern(room, pattern, from, card))
-                return false;
-
-            if (RoomLogic.PlayerHasSkill(room, from, Name))
-                return true;
-            else
-                return false;
+            return RoomLogic.PlayerHasSkill(room, from, Name) ? true : false;
         }
     }
 
@@ -2502,25 +2620,22 @@ namespace SanguoshaServer.Game
                 Type = "#NoJink",
                 From = target.Name
             };
-            room.SendLog(log); bool done = false;
-            int index = use.To.IndexOf(target);
+            room.SendLog(log);
+
+            int index = 0;
             for (int i = 0; i < use.EffectCount.Count; i++)
             {
-                EffctCount effect = use.EffectCount[i];
-                if (effect.Index == index)
+                CardBasicEffect effect = use.EffectCount[i];
+                if (effect.To == target)
                 {
-                    effect.Count = 0;
-                    done = true;
-                    use.EffectCount[i] = effect;
+                    index++;
+                    if (index == info.Times)
+                    {
+                        effect.Effect2 = 0;
+                        data = use;
+                        break;
+                    }
                 }
-            }
-            if (!done)
-            {
-                EffctCount effect = new EffctCount(player, target, 0)
-                {
-                    Index = index
-                };
-                use.EffectCount.Add(effect);
             }
 
             return false;
@@ -2551,7 +2666,6 @@ namespace SanguoshaServer.Game
     {
         public Kuanggu() : base("kuanggu")
         {
-            frequency = Frequency.Compulsory;
             events = new List<TriggerEvent> { TriggerEvent.Damage, TriggerEvent.PreDamageDone };
             skill_type = SkillType.Recover;
         }
@@ -2587,8 +2701,7 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            bool invoke = RoomLogic.PlayerHasShownSkill(room, player, Name) ? true : room.AskForSkillInvoke(player, Name, null, info.SkillPosition);
-            if (invoke)
+            if (room.AskForSkillInvoke(player, Name, null, info.SkillPosition))
             {
                 room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
                 return info;
@@ -2597,8 +2710,6 @@ namespace SanguoshaServer.Game
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            room.SendCompulsoryTriggerLog(player, Name);
-
             List<string> choices = new List<string> { "draw" };
             if (player.IsWounded())
                 choices.Add("recover");
@@ -2612,7 +2723,7 @@ namespace SanguoshaServer.Game
                     Who = player,
                     Recover = 1
                 };
-                room.Recover(player, recover);
+                room.Recover(player, recover, true);
             }
 
             return false;
@@ -2629,7 +2740,7 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard originalCard, Player player)
         {
-            WrappedCard chain = new WrappedCard("IronChain");
+            WrappedCard chain = new WrappedCard(IronChain.ClassName);
             chain.AddSubCard(originalCard);
             chain.Skill = Name;
             chain.ShowSkill = Name;
@@ -2650,15 +2761,10 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player target, ref object data, Player ask_who)
         {
-            if (base.Triggerable(target, room) && target.GetMark("@nirvana") > 0 && data is DyingStruct dying_data)
-            {
-                if (target.Hp > 0)
-                    return new TriggerStruct();
-
-                if (dying_data.Who != target)
-                    return new TriggerStruct();
+            if (data is DyingStruct dying && dying.Who == target && target.Hp <= 0
+                && base.Triggerable(target, room) && target.GetMark("@nirvana") > 0)
                 return new TriggerStruct(Name, target);
-            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player pangtong, ref object data, Player ask_who, TriggerStruct info)
@@ -2667,18 +2773,14 @@ namespace SanguoshaServer.Game
             {
                 room.BroadcastSkillInvoke(Name, pangtong, info.SkillPosition);
                 room.DoSuperLightbox(pangtong, info.SkillPosition, Name);
-                pangtong.SetMark("@nirvana", 0);
+                room.SetPlayerMark(pangtong, "@nirvana", 0);
                 return info;
             }
             return new TriggerStruct();
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player pangtong, ref object data, Player ask_who, TriggerStruct info)
         {
-            room.ThrowAllHandCardsAndEquips(pangtong);
-            List<int> ids = pangtong.JudgingArea;
-
-            room.ThrowCard(ref ids, new CardMoveReason(CardMoveReason.MoveReason.S_REASON_NATURAL_ENTER, pangtong.Name), null);
-
+            room.ThrowAllCards(pangtong);
             RecoverStruct recover = new RecoverStruct
             {
                 Recover = Math.Min(3, pangtong.MaxHp) - pangtong.Hp
@@ -2707,7 +2809,7 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard fire_attack = new WrappedCard("FireAttack");
+            WrappedCard fire_attack = new WrappedCard(FireAttack.ClassName);
             fire_attack.AddSubCard(card);
             fire_attack.Skill = Name;
             fire_attack.ShowSkill = Name;
@@ -2731,7 +2833,7 @@ namespace SanguoshaServer.Game
             {
                 Pattern = ".|red",
                 Good = true,
-                Reason = "EightDiagram",
+                Reason = EightDiagram.ClassName,
                 Who = player
             };
 
@@ -2739,7 +2841,7 @@ namespace SanguoshaServer.Game
             Thread.Sleep(400);
             if (judge.IsGood())
             {
-                WrappedCard jink = new WrappedCard("Jink")
+                WrappedCard jink = new WrappedCard(Jink.ClassName)
                 {
                     Skill = Name,
                     SkillPosition = info.SkillPosition
@@ -2757,7 +2859,7 @@ namespace SanguoshaServer.Game
     {
         public BazhenVH() : base("#bazhenvh")
         {
-            viewhas_armors.Add("EightDiagram");
+            viewhas_armors.Add(EightDiagram.ClassName);
         }
         public override bool ViewHas(Room room, Player player, string skill_name)
         {
@@ -2773,12 +2875,12 @@ namespace SanguoshaServer.Game
         {
             filter_pattern = ".|black|.|hand";
             response_or_use = true;
-            response_pattern = "Nullification";
+            response_pattern = Nullification.ClassName;
             skill_type = SkillType.Alter;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard ncard = new WrappedCard("Nullification");
+            WrappedCard ncard = new WrappedCard(Nullification.ClassName);
             ncard.AddSubCard(card);
             ncard.Skill = Name;
             ncard.ShowSkill = Name;
@@ -2788,17 +2890,19 @@ namespace SanguoshaServer.Game
         public override bool IsEnabledAtNullification(Room room, Player player)
         {
             List<WrappedCard> handlist = RoomLogic.GetPlayerHandcards(room, player);
-            foreach (int id in player.GetHandPile()) {
+            foreach (int id in player.GetHandPile())
+            {
                 WrappedCard ca = room.GetCard(id);
                 handlist.Add(ca);
             }
-            foreach (WrappedCard ca in handlist) {
+            foreach (WrappedCard ca in handlist)
+            {
                 if (WrappedCard.IsBlack(ca.Suit))
                     return true;
             }
             return false;
         }
-};
+    };
 
     public class SavageAssaultAvoid : TriggerSkill
     {
@@ -2811,7 +2915,7 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (player != null && player.Alive && RoomLogic.PlayerHasSkill(room, player, avoid_skill) && data is CardEffectStruct effect && effect.Card.Name == "SavageAssault")
+            if (player != null && player.Alive && RoomLogic.PlayerHasSkill(room, player, avoid_skill) && data is CardEffectStruct effect && effect.Card.Name == SavageAssault.ClassName)
             {
                 return new TriggerStruct(Name, player);
             }
@@ -2839,7 +2943,7 @@ namespace SanguoshaServer.Game
                 Type = "#Skillnullify",
                 From = player.Name,
                 Arg = avoid_skill,
-                Arg2 = "savage_assault"
+                Arg2 = SavageAssault.ClassName
             };
             room.SendLog(log);
 
@@ -2858,7 +2962,7 @@ namespace SanguoshaServer.Game
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             if (triggerEvent == TriggerEvent.ConfirmDamage && room.ContainsTag("HuoshouSource") && data is DamageStruct damage) {
-                if (damage.Card == null || damage.Card.Name != "SavageAssault")
+                if (damage.Card == null || damage.Card.Name != SavageAssault.ClassName)
                     return;
 
                 Player menghuo = (Player)room.GetTag("HuoshouSource");
@@ -2872,7 +2976,7 @@ namespace SanguoshaServer.Game
             if (player == null) return skill_list;
             if (triggerEvent == TriggerEvent.TargetChosen && data is CardUseStruct use && !room.ContainsTag("HuoshouSource"))
             {
-                if (use.Card.Name == "SavageAssault")
+                if (use.Card.Name == SavageAssault.ClassName)
                 {
                     List<Player> menghuos = RoomLogic.FindPlayersBySkillName(room, Name);
                     foreach (Player menghuo in menghuos)
@@ -2887,7 +2991,7 @@ namespace SanguoshaServer.Game
             }
             else if (triggerEvent == TriggerEvent.CardFinished && data is CardUseStruct use2)
             {
-                if (use2.Card.Name == "SavageAssault")
+                if (use2.Card.Name == SavageAssault.ClassName)
                     room.RemoveTag("HuoshouSource");
             }
 
@@ -2899,7 +3003,7 @@ namespace SanguoshaServer.Game
                 || room.AskForSkillInvoke(ask_who, Name,null, info.SkillPosition));
             if (invoke)
             {
-                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
+                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, ask_who, Name, info.SkillPosition);
                 room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
                 return info;
             }
@@ -2945,7 +3049,7 @@ namespace SanguoshaServer.Game
             int x = menghuo.GetLostHp();
             List<int> ids = room.GetNCards(x);
             CardsMoveStruct move = new CardsMoveStruct(ids, menghuo, Place.PlaceTable,
-                new CardMoveReason(CardMoveReason.MoveReason.S_REASON_TURNOVER, menghuo.Name, "zaiqi", null));
+                new CardMoveReason(MoveReason.S_REASON_TURNOVER, menghuo.Name, "zaiqi", null));
             room.MoveCardsAtomic(new List<CardsMoveStruct> { move }, true);
 
             Thread.Sleep(1000);
@@ -2966,16 +3070,16 @@ namespace SanguoshaServer.Game
                     Who = menghuo,
                     Recover = card_to_throw.Count
                 };
-                room.Recover(menghuo, recover);
+                room.Recover(menghuo, recover, true);
 
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_NATURAL_ENTER, menghuo.Name, "zaiqi", null);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_NATURAL_ENTER, menghuo.Name, "zaiqi", null);
                 room.ThrowCard(ref card_to_throw, reason, null);
                 has_heart = true;
             }
             if (card_to_gotback.Count > 0)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GOTBACK, menghuo.Name);
-                room.ObtainCard(menghuo, card_to_gotback, reason);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GOTBACK, menghuo.Name);
+                room.ObtainCard(menghuo, ref card_to_gotback, reason);
             }
 
             if (has_heart)
@@ -3002,17 +3106,18 @@ namespace SanguoshaServer.Game
             List<Player> zhurongs = RoomLogic.FindPlayersBySkillName(room, Name);
             List<TriggerStruct> triggers = new List<TriggerStruct>();
             if (zhurongs.Count > 0 && data is CardsMoveOneTimeStruct move && move.From != null && move.From_places.Contains(Place.PlaceTable) && move.To_place == Place.DiscardPile
-                && move.Reason.Reason == CardMoveReason.MoveReason.S_REASON_USE)
+                && move.Reason.Reason == MoveReason.S_REASON_USE && move.Reason.Card != null && move.Reason.Card.Name == SavageAssault.ClassName && move.Card_ids.Count > 0)
             {
-                WrappedCard card = RoomLogic.ParseCard(room, move.Reason.CardString);
-                if (card?.Name == "SavageAssault" && move.Card_ids.Count == card.SubCards.Count)
+                List<int> ids = room.GetSubCards(move.Reason.Card);
+                if (ids.Count > 0 && ids.SequenceEqual(move.Card_ids) && ids.SequenceEqual(move.Reason.Card.SubCards))
                 {
                     bool check = true;
-                    foreach (int id in card.SubCards)
-                       if (room.GetCardPlace(id) != Place.DiscardPile || !move.Card_ids.Contains(id))
+                    foreach (int id in move.Card_ids)
+                       if (room.GetCardPlace(id) != Place.DiscardPile)
                         check = false;
 
-                    if (check) {
+                    if (check)
+                    {
                         foreach (Player zhurong in zhurongs)
                             if (move.From != zhurong)
                                 triggers.Add(new TriggerStruct(Name, zhurong));
@@ -3024,19 +3129,24 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player target, ref object data, Player player, TriggerStruct info)
         {
-            CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
-            WrappedCard card = RoomLogic.ParseCard(room, move.Reason.CardString);
-            bool check = true;
-            foreach (int id in card.SubCards)
-                if (room.GetCardPlace(id) != Place.DiscardPile || !move.Card_ids.Contains(id))
-                    check = false;
-
-            bool invoke = check && (RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, null, info.SkillPosition));
-            if (invoke)
+            if (data is CardsMoveOneTimeStruct move)
             {
-                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
-                room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
-                return info;
+                List<int> ids = room.GetSubCards(move.Reason.Card);
+                if (ids.Count > 0 && ids.SequenceEqual(move.Card_ids) && ids.SequenceEqual(move.Reason.Card.SubCards))
+                {
+                    bool check = true;
+                    foreach (int id in move.Card_ids)
+                        if (room.GetCardPlace(id) != Place.DiscardPile)
+                            check = false;
+
+                    bool invoke = check && (RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, null, info.SkillPosition));
+                    if (invoke)
+                    {
+                        GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, player, Name, info.SkillPosition);
+                        room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
+                        return info;
+                    }
+                }
             }
 
             return new TriggerStruct();
@@ -3045,8 +3155,9 @@ namespace SanguoshaServer.Game
         {
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
             room.SendCompulsoryTriggerLog(player, Name);
-
-            room.ObtainCard(player, move.Card_ids, new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GOTBACK, player.Name));
+            List<int> ids = new List<int>(move.Card_ids);
+            room.RemoveSubCards(move.Reason.Card);
+            room.ObtainCard(player, ref ids, new CardMoveReason(MoveReason.S_REASON_RECYCLE, player.Name, Name, string.Empty));
 
             return false;
         }
@@ -3064,14 +3175,15 @@ namespace SanguoshaServer.Game
             if (base.Triggerable(zhurong, room) && data is DamageStruct damage && damage.Card != null)
             {
                 FunctionCard fcard = Engine.GetFunctionCard(damage.Card.Name);
-                if (fcard is Slash && !zhurong.IsKongcheng() && !damage.To.IsKongcheng() && damage.To != zhurong && !damage.Chain && !damage.Transfer && !damage.To.HasFlag("Global_DFDebut"))
+                if (fcard is Slash && !zhurong.IsKongcheng() && !damage.To.IsKongcheng() && damage.To != zhurong && !damage.Chain && !damage.Transfer
+                    && !damage.To.HasFlag("Global_DFDebut") && RoomLogic.CanBePindianBy(room, damage.To, zhurong))
                     return new TriggerStruct(Name, zhurong);
             }
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player zhurong, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (room.AskForSkillInvoke(zhurong, Name, data, info.SkillPosition) && data is DamageStruct damage)
+            if (data is DamageStruct damage && room.AskForSkillInvoke(zhurong, Name, damage.To, info.SkillPosition))
             {
                 room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, zhurong.Name, damage.To.Name);
                 GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, zhurong, Name, info.SkillPosition);
@@ -3086,16 +3198,16 @@ namespace SanguoshaServer.Game
         {
             PindianStruct pd = (PindianStruct)room.GetTag("lieren_pd");
             room.RemoveTag("lieren_pd");
-            Player target = pd.To;
-            bool success = room.Pindian(pd);
-            if (!success) return false;
+            Player target = pd.Tos[0];
+            room.Pindian(ref pd);
+            if (!pd.Success) return false;
 
             GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, zhurong, Name, info.SkillPosition);
             room.BroadcastSkillInvoke(Name, "male", 2, gsk.General, gsk.SkinId);
             if (RoomLogic.CanGetCard(room, zhurong, target, "he"))
             {
                 int card_id = room.AskForCardChosen(zhurong, target, "he", Name, false, HandlingMethod.MethodGet);
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_EXTRACTION, zhurong.Name);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_EXTRACTION, zhurong.Name);
                 room.ObtainCard(zhurong, room.GetCard(card_id), reason, room.GetCardPlace(card_id) != Place.PlaceHand);
             }
 
@@ -3138,16 +3250,31 @@ namespace SanguoshaServer.Game
         {
             room.SendCompulsoryTriggerLog(liushan, Name);
             CardUseStruct use = (CardUseStruct)data;
-            
-            if (room.AskForCard(use.From, Name, ".Basic", "@xiangle-discard:" + liushan.Name, liushan) == null)
+
+            int index = 0, i;
+            for (i = 0; i < use.EffectCount.Count; i++)
             {
-                if (use.NullifiedList != null)
-                    use.NullifiedList.Add(liushan.Name);
-                else
-                    use.NullifiedList = new List<string> { liushan.Name };
+                CardBasicEffect effect = use.EffectCount[i];
+                if (effect.To == liushan)
+                {
+                    index++;
+                    if (index == info.Times)
+                    {
+                        use.From.SetTag(Name, i);
+                        break;
+                    }
+                }
+            }
+
+            if (room.AskForCard(use.From, Name, ".Basic", "@xiangle-discard:" + liushan.Name, data) == null)
+            {
+                CardBasicEffect effect = use.EffectCount[i];
+                effect.Nullified = true;
 
                 data = use;
             }
+
+            use.From.RemoveTag(Name);
 
             return false;
         }
@@ -3155,9 +3282,11 @@ namespace SanguoshaServer.Game
 
     public class FangquanCard : SkillCard
     {
-        public FangquanCard() : base("FangquanCard")
+        public static string ClassName = "FangquanCard";
+        public FangquanCard() : base(ClassName)
         {
         }
+
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
             return targets.Count == 0 && to_select != Self;
@@ -3169,6 +3298,10 @@ namespace SanguoshaServer.Game
         public override void OnEffect(Room room, CardEffectStruct effect)
         {
             Player player = effect.To;
+
+            ResultStruct result = effect.From.Result;           //放权辅助+3
+            result.Assist += 3;
+            effect.From.Result = result;
 
             LogMessage log = new LogMessage
             {
@@ -3193,7 +3326,6 @@ namespace SanguoshaServer.Game
             WrappedCard fangquan = new WrappedCard("FangquanCard");
             fangquan.AddSubCard(card);
             fangquan.Skill = Name;
-            //fangquan.Skill = Name);
             return fangquan;
         }
     }
@@ -3210,11 +3342,11 @@ namespace SanguoshaServer.Game
         {
             if (data is PhaseChangeStruct change)
             {
-                if (base.Triggerable(player, room) && change.To == PlayerPhase.Play)
+                if (base.Triggerable(player, room) && change.To == PlayerPhase.Play && !player.IsSkipped(PlayerPhase.Play))
                 {
-                    return (player.IsSkipped(PlayerPhase.Play)) ? new TriggerStruct() : new TriggerStruct(Name, player);
+                    return new TriggerStruct(Name, player);
                 }
-                else if (change.To == PlayerPhase.NotActive && player.HasFlag(Name) && RoomLogic.CanDiscard(room, player, player, "h"))
+                else if (change.To == PlayerPhase.NotActive && player.Alive && player.HasFlag(Name) && RoomLogic.CanDiscard(room, player, player, "h"))
                 {
                     TriggerStruct trigger = new TriggerStruct(Name, player)
                     {
@@ -3239,7 +3371,7 @@ namespace SanguoshaServer.Game
                 }
             }
             else if (change.To == PlayerPhase.NotActive)
-                room.AskForUseCard(player, "@@fangquan", "@fangquan-discard", -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
+                room.AskForUseCard(player, "@@fangquan", "@fangquan-discard", null, -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
 
             return new TriggerStruct();
         }
@@ -3253,8 +3385,11 @@ namespace SanguoshaServer.Game
             }
             return false;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card) => 2;
 
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = 2;
+        }
     }
 
     public class Shushen : TriggerSkill
@@ -3345,7 +3480,7 @@ namespace SanguoshaServer.Game
                     Recover = 1,
                     Who = ganfuren
                 };
-                room.Recover(ganfuren, recover);
+                room.Recover(ganfuren, recover, true);
             }
             return false;
         }
@@ -3365,8 +3500,8 @@ namespace SanguoshaServer.Game
         public override bool IsEnabledAtPlay(Room room, Player player) => false;
         public override bool IsEnabledAtResponse(Room room, Player player, string pattern)
         {
-            WrappedCard peach = new WrappedCard("Peach");
-            FunctionCard fcard = Engine.GetFunctionCard(peach.Name);
+            WrappedCard peach = new WrappedCard(Peach.ClassName);
+            FunctionCard fcard = Peach.Instance;
             if (room.GetRoomState().GetCurrentCardUseReason() == CardUseReason.CARD_USE_REASON_RESPONSE_USE && player.Phase == PlayerPhase.NotActive
                     && fcard.IsAvailable(room, player, peach))
             {
@@ -3377,7 +3512,7 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard peach = new WrappedCard("Peach");
+            WrappedCard peach = new WrappedCard(Peach.ClassName);
             peach.AddSubCard(card);
             peach.Skill = Name;
             peach.ShowSkill = Name;
@@ -3398,10 +3533,10 @@ namespace SanguoshaServer.Game
 
             List<string> kingdoms = new List<string>();
             foreach (Player player in targets)
-                if (player.HasShownOneGeneral() && player.Role != "careerist")
+                if (player.HasShownOneGeneral() && player.GetRoleEnum() != PlayerRole.Careerist)
                     kingdoms.Add(player.Kingdom);
 
-            return !to_select.HasShownOneGeneral() || to_select.Role == "careerist" || !kingdoms.Contains(to_select.Kingdom);
+            return !to_select.HasShownOneGeneral() || to_select.GetRoleEnum() == PlayerRole.Careerist || !kingdoms.Contains(to_select.Kingdom);
         }
         public override void Use(Room room, CardUseStruct use)
         {
@@ -3413,26 +3548,85 @@ namespace SanguoshaServer.Game
                 {
                     int id = -1;
                     if (p == use.From)
-                        id = room.AskForExchange(use.From, "chuli", 1, 1, "@chuli", null, "..!", use.Card.SkillPosition)[0];
+                    {
+                        List<int> ex = room.AskForExchange(use.From, "chuli", 1, 1, "@chuli", null, "..!", use.Card.SkillPosition);
+                        if (ex.Count == 1)
+                            id = ex[0];
+                        else
+                        {
+                            foreach (int card_id in use.From.GetCards("he"))
+                            {
+                                if (RoomLogic.CanDiscard(room, use.From, use.From, card_id))
+                                {
+                                    id = card_id;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     else
                         id = room.AskForCardChosen(use.From, p, "he", "chuli", false, HandlingMethod.MethodDiscard);
-                    CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_DISMANTLE, use.From.Name, p.Name, "chuli", null);
+                    CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_DISMANTLE, use.From.Name, p.Name, "chuli", string.Empty)
+                    {
+                        General = RoomLogic.GetGeneralSkin(room, use.From, Name, use.Card.SkillPosition)
+                    };
                     List<int> ids = new List<int> { id };
-                    room.ThrowCard(ref ids, reason, p, use.From);
-                    //这TM是一个愚蠢的耦合，最终卡牌的结果必须等待移动完成才能确定，而移动完成后被红颜改变的卡牌花色又已还原
-                    if (ids.Count > 0 && room.GetCard(ids[0]).Suit == WrappedCard.CardSuit.Spade && !RoomLogic.PlayerHasShownSkill(room, p, "hongyan"))
+                    if (p == use.From)
+                    {
+                        CardMoveReason _reason = new CardMoveReason(MoveReason.S_REASON_THROW, use.From.Name, "chuli", string.Empty)
+                        {
+                            General = RoomLogic.GetGeneralSkin(room, use.From, Name, use.Card.SkillPosition)
+                        };
+                        room.ThrowCard(ref ids, _reason, p, null);
+                    }
+                    else
+                        room.ThrowCard(ref ids, reason, p, use.From);
+
+                    //判断进入弃牌堆卡牌的花色在下方触发技
+                    string key = string.Format("chuli_{0}", p.Name);
+                    if (ids.Count > 0 && use.From.HasFlag(key))
+                    {
+                        use.From.SetFlags("-" + key);
                         draws.Add(p);
+                    }
                 }
             }
             foreach (Player p in draws)
                 room.DrawCards(p, new DrawCardStruct(1, use.From, "chuli"));
         }
     }
-    public class Chuli : ZeroCardViewAsSkill
+
+    public class Chuli : TriggerSkill
     {
         public Chuli() : base("chuli")
         {
-	        skill_type = SkillType.Attack;
+            events.Add(TriggerEvent.CardsMoveOneTime);
+            view_as_skill = new ChuliVS();
+            skill_type = SkillType.Attack;
+        }
+
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            if (data is CardsMoveOneTimeStruct move && move.From != null && move.To_place == Place.DiscardPile
+                && (move.Reason.Reason & MoveReason.S_MASK_BASIC_REASON) == MoveReason.S_REASON_DISCARD
+                && move.Reason.SkillName == Name && move.Card_ids.Count > 0)
+            {
+                Player huatuo = room.FindPlayer(move.Reason.PlayerId);
+                WrappedCard.CardSuit suit = room.GetCard(move.Card_ids[0]).Suit;
+                if (suit == WrappedCard.CardSuit.Spade) huatuo.SetFlags(string.Format("{0}_{1}", Name, move.From.Name));
+            }
+        }
+
+        public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            return new List<TriggerStruct>();
+        }
+    }
+
+    public class ChuliVS : ZeroCardViewAsSkill
+    {
+        public ChuliVS() : base("chuli")
+        {
         }
         public override bool IsEnabledAtPlay(Room room, Player player)
         {
@@ -3458,29 +3652,19 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (player == null)
-                return new TriggerStruct();
             CardUseStruct use = (CardUseStruct)data;
-            if (triggerEvent == TriggerEvent.TargetChosen && use.Card != null)
+            if (triggerEvent == TriggerEvent.TargetChosen && use.Card != null && base.Triggerable(player, room))
             {
                 FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
                 if (fcard is Slash || fcard is Duel)
                 {
-                    if (base.Triggerable(player, room))
-                    {
-                        if (use.To.Count > 0)
-                            return new TriggerStruct(Name, player, use.To);
-                    }
+                    if (use.To.Count > 0)
+                        return new TriggerStruct(Name, player, use.To);
                 }
             }
-            else if (triggerEvent == TriggerEvent.TargetConfirmed && use.Card != null)
+            else if (triggerEvent == TriggerEvent.TargetConfirmed && use.Card != null && use.Card.Name == Duel.ClassName && base.Triggerable(player, room))
             {
-                if (!use.To.Contains(player))
-                    return new TriggerStruct();
-
-                FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
-                if (fcard is Duel && base.Triggerable(player, room))
-                    return new TriggerStruct(Name, player, new List<Player> { use.From });
+                return new TriggerStruct(Name, player, new List<Player> { use.From });
             }
 
             return new TriggerStruct();
@@ -3509,50 +3693,35 @@ namespace SanguoshaServer.Game
                 if (triggerEvent != TriggerEvent.TargetChosen)
                     return false;
 
-                int x = use.To.IndexOf(target);
-                bool done = false;
+                int index = 0;
                 for (int i = 0; i < use.EffectCount.Count; i++)
                 {
-                    EffctCount count = use.EffectCount[i];
-                    if (count.Index == x && count.From == ask_who && count.To == target)
+                    CardBasicEffect effect = use.EffectCount[i];
+                    if (effect.To == target)
                     {
-                        done = true;
-                        if (count.Count > 0)
-                            count.Count = 2;
+                        index++;
+                        if (index == info.Times)
+                        {
+                            effect.Effect2 = 2;
+                            break;
+                        }
                     }
-                }
-                if (!done)
-                {
-                    EffctCount count = new EffctCount(ask_who, target, 2)
-                    {
-                        Index = x
-                    };
-                    use.EffectCount.Add(count);
                 }
             }
             else if (fcard is Duel && use.To.Contains(ask_who))
             {
-                int x = use.To.IndexOf(ask_who);
-                bool done = false;
                 for (int i = 0; i < use.EffectCount.Count; i++)
                 {
-                    EffctCount count = use.EffectCount[i];
-                    if (count.Index == x && count.From == ask_who && count.To == target)
+                    CardBasicEffect effect = use.EffectCount[i];
+                    if (effect.To == ask_who && !effect.Triggered)
                     {
-                        done = true;
-                        if (count.Count < 2)
-                            count.Count = 2;
+                        effect.Effect3 = 2;
+                        break;
                     }
                 }
-                if (!done)
-                {
-                    EffctCount count = new EffctCount(ask_who, target, 2)
-                    {
-                        Index = x
-                    };
-                    use.EffectCount.Add(count);
-                }
             }
+
+            data = use;
 
             return false;
         }
@@ -3567,7 +3736,7 @@ namespace SanguoshaServer.Game
             if (!to_select.IsMale())
                 return false;
 
-            WrappedCard duel = new WrappedCard("Duel");
+            WrappedCard duel = new WrappedCard(Duel.ClassName);
             if (targets.Count == 1 && (RoomLogic.IsCardLimited(room, to_select, duel, HandlingMethod.MethodUse)
                 || RoomLogic.IsProhibited(room, to_select, targets[0], duel) != null))
                 return false;
@@ -3589,7 +3758,11 @@ namespace SanguoshaServer.Game
             thread.Trigger(TriggerEvent.PreCardUsed, room, diaochan, ref data);
             room.BroadcastSkillInvoke("lijian", diaochan, card_use.Card.SkillPosition);
 
-            CardMoveReason reason = new CardMoveReason( CardMoveReason.MoveReason.S_REASON_THROW, diaochan.Name, null, "lijian", null);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_THROW, diaochan.Name, null, "lijian", null)
+            {
+                General = RoomLogic.GetGeneralSkin(room, diaochan, Name, card_use.Card.SkillPosition)
+            };
+            room.RecordSubCards(card_use.Card);
             room.MoveCardTo(card_use.Card, diaochan, null, Place.PlaceTable, reason, true);
 
             LogMessage log = new LogMessage
@@ -3603,11 +3776,12 @@ namespace SanguoshaServer.Game
                 log.To.Add(p.Name);
             room.SendLog(log);
 
-            List<int> table_ids = room.GetCardIdsOnTable(card_use.Card);
+            List<int> table_ids = room.GetCardIdsOnTable(room.GetSubCards(card_use.Card));
             if (table_ids.Count > 0)
             {
                 CardsMoveStruct move = new CardsMoveStruct(table_ids, diaochan, null, Place.PlaceTable, Place.DiscardPile, reason);
                 room.MoveCardsAtomic(new List<CardsMoveStruct> { move }, true);
+                room.RemoveSubCards(card_use.Card);
             }
             thread.Trigger(TriggerEvent.CardUsedAnnounced, room, diaochan, ref data);
             thread.Trigger(TriggerEvent.CardTargetAnnounced, room, diaochan, ref data);
@@ -3620,10 +3794,11 @@ namespace SanguoshaServer.Game
             Player to = card_use.To[0];
             Player from = card_use.To[1];
 
-            WrappedCard duel = new WrappedCard("Duel")
+            WrappedCard duel = new WrappedCard(Duel.ClassName)
             {
                 Skill = "_lijian"
             };
+            if (room.Setting.GameMode != "Hegemony") duel.Cancelable = false;
             if (!RoomLogic.IsCardLimited(room, from, duel, HandlingMethod.MethodUse) && RoomLogic.IsProhibited(room, from, to, duel) == null)
                 room.UseCard(new CardUseStruct(duel, from, to));
         }
@@ -3650,10 +3825,6 @@ namespace SanguoshaServer.Game
             lijian_card.Skill = Name;
             lijian_card.ShowSkill = Name;
             return lijian_card;
-        }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card)
-        {
-            return card.Name == "Duel" ? 0 : -1;
         }
     }
     public class Biyue : PhaseChangeSkill
@@ -3703,7 +3874,7 @@ namespace SanguoshaServer.Game
         {
             if (cards.Count == 2)
             {
-                WrappedCard aa = new WrappedCard("ArcheryAttack");
+                WrappedCard aa = new WrappedCard(ArcheryAttack.ClassName);
                 aa.AddSubCards(cards);
                 aa.Skill = Name;
                 aa.ShowSkill = Name;
@@ -3719,13 +3890,13 @@ namespace SanguoshaServer.Game
         public Luanji() : base("luanji")
         {
             view_as_skill = new LuanjiVS();
-            events = new List<TriggerEvent> { TriggerEvent.CardUsedAnnounced, TriggerEvent.EventPhaseChanging };
+            events = new List<TriggerEvent> { TriggerEvent.CardUsedAnnounced, TriggerEvent.EventPhaseChanging, TriggerEvent.CardResponded };
             skill_type = SkillType.Attack;
         }
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             if (triggerEvent == TriggerEvent.CardUsedAnnounced && data is CardUseStruct use && use.Card != null
-                && use.Card.Name == "ArcheryAttack" && use.Card.Skill == Name && use.Card.SubCards.Count > 0)
+                && use.Card.Name == ArcheryAttack.ClassName && use.Card.Skill == Name && use.Card.SubCards.Count > 0)
             {
                 List<int> suits = player.ContainsTag(Name) ? (List<int>)player.GetTag(Name) : new List<int>();
                 foreach (int id in use.Card.SubCards)
@@ -3737,19 +3908,40 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
+            if (triggerEvent == TriggerEvent.CardResponded && data is CardResponseStruct resp && resp.Reason == ArcheryAttack.ClassName && resp.Data is CardEffectStruct effect
+                && effect.Card.Skill == Name && player.Alive && RoomLogic.IsFriendWith(room, player, effect.From))
+            {
+                return new TriggerStruct(Name, player);
+            }
+
             return new TriggerStruct();
+        }
+
+        public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
+        {
+            if (player.Alive && room.AskForSkillInvoke(player, "luanji-draw", "#luanji-draw"))
+            {
+                return info;
+            }
+
+            return new TriggerStruct();
+        }
+
+        public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
+        {
+            room.DrawCards(player, 1, Name);
+            return false;
         }
     }
     public class ShuangxiongViewAsSkill : OneCardViewAsSkill
     {
         public ShuangxiongViewAsSkill() : base("shuangxiong")
-        { //Client::updateProperty() / RoomScene::detachSkill()
+        {
             response_or_use = true;
         }
         public override bool IsAvailable(Room room, Player player, CardUseReason reason, string pattern, string position = null)
         {
-            return reason == CardUseReason.CARD_USE_REASON_PLAY && player.HasFlag("shuangxiong_" + position)
-                    && player.GetMark("shuangxiong") != 0 && !player.IsKongcheng();
+            return reason == CardUseReason.CARD_USE_REASON_PLAY && player.HasFlag("shuangxiong_" + position) && player.GetMark("shuangxiong") != 0;
         }
         public override bool ViewFilter(Room room, WrappedCard card, Player player)
         {
@@ -3766,7 +3958,7 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard duel = new WrappedCard("Duel");
+            WrappedCard duel = new WrappedCard(Duel.ClassName);
             duel.AddSubCard(card);
             duel.Skill = Name;
             duel.ShowSkill = Name;
@@ -3835,15 +4027,31 @@ namespace SanguoshaServer.Game
                 };
 
                 room.Judge(ref judge);
-                shuangxiong.SetMark("shuangxiong", judge.Pattern == "red" ? 1 : 2);
+                shuangxiong.SetMark("shuangxiong", WrappedCard.IsRed(judge.JudgeSuit) ? 1 : 2);
 
                 return true;
             }
 
             return false;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card) => 2;
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = 2;
+        }
     }
+
+    public class ShuangxiongVH : ViewHasSkill
+    {
+        public ShuangxiongVH() : base("#shuangxiong-viewhas") { viewhas_skills.Add("shuangxiong"); }
+        public override bool ViewHas(Room room, Player player, string skill_name)
+        {
+            if (skill_name == "shuangxiong" && (player.HasFlag("shuangxiong_head") || player.HasFlag("shuangxiong_deputy")) && player.GetMark("shuangxiong") != 0)
+                return true;
+
+            return false;
+        }
+    }
+
     public class ShuangxiongGet : TriggerSkill
     {
         public ShuangxiongGet() : base("#shuangxiong-get")
@@ -3858,7 +4066,6 @@ namespace SanguoshaServer.Game
             {
                 if (judge.Reason == "shuangxiong")
                 {
-                    judge.Pattern = WrappedCard.IsRed(judge.Card.Suit) ? "red" : "black";
                     if (room.GetCardPlace(judge.Card.GetEffectiveId()) == Place.PlaceJudge)
                     {
                         string head = (string)player.GetTag("shuangxiong");
@@ -3936,7 +4143,8 @@ namespace SanguoshaServer.Game
         }
         public override bool IsProhibited(Room room, Player from, Player to, WrappedCard card, List<Player> others = null)
         {
-            if (card.Name == "Peach" && room.Current != null && room.Current.Phase != PlayerPhase.NotActive && RoomLogic.PlayerHasShownSkill(room, room.Current, "wansha")
+            if (card.Name == Peach.ClassName && room.Current != null && room.Current.Alive && room.Current.Phase != PlayerPhase.NotActive
+                && RoomLogic.PlayerHasShownSkill(room, room.Current, "wansha")
                 && room.Current != from && !from.HasFlag("Global_Dying"))
                 return true;
 
@@ -3978,7 +4186,7 @@ namespace SanguoshaServer.Game
                     luanwu_targets.Add(players[i]);
             }
 
-            if (luanwu_targets.Count == 0 || room.AskForUseSlashTo(effect.To, luanwu_targets, "@luanwu-slash") == null)
+            if (luanwu_targets.Count == 0 || room.AskForUseSlashTo(effect.To, luanwu_targets, "@luanwu-slash", null) == null)
             {
                 room.LoseHp(effect.To);
                 Thread.Sleep(500);
@@ -4009,40 +4217,64 @@ namespace SanguoshaServer.Game
     {
         public Weimu() : base("weimu")
         {
-            events.Add(TriggerEvent.TargetConfirming);
+            events = new List<TriggerEvent> { TriggerEvent.TargetConfirming, TriggerEvent.CardsMoveOneTime };
             frequency = Frequency.Compulsory;
             skill_type = SkillType.Defense;
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null && use.To.Contains(player))
+            if (triggerEvent == TriggerEvent.TargetConfirming && base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null && use.To.Contains(player))
             {
                 FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
                 if (fcard is TrickCard && WrappedCard.IsBlack(RoomLogic.GetCardSuit(room, use.Card)))
                 {
-
                     return new TriggerStruct(Name, player);
                 }
             }
+            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.To != null && move.To_place == Place.PlaceDelayedTrick
+                && base.Triggerable(move.To, room) && move.Reason.Reason == MoveReason.S_REASON_TRANSFER)
+            {
+                WrappedCard card = move.Reason.Card;
+                FunctionCard fcard = Engine.GetFunctionCard(card.Name);
+                if (fcard is TrickCard && WrappedCard.IsBlack(RoomLogic.GetCardSuit(room, card)) && room.GetCardPlace(move.Card_ids[0]) == Place.PlaceDelayedTrick)
+                {
+                    return new TriggerStruct(Name, move.To);
+                }
+            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, data, info.SkillPosition))
+            if (RoomLogic.PlayerHasShownSkill(room, ask_who, Name) || room.AskForSkillInvoke(ask_who, Name, data, info.SkillPosition))
             {
-                room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
+                room.BroadcastSkillInvoke(Name, ask_who, info.SkillPosition);
                 return info;
             }
             return new TriggerStruct();
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            room.SendCompulsoryTriggerLog(player, Name);
-            CardUseStruct use = (CardUseStruct)data;
+            room.SendCompulsoryTriggerLog(ask_who, Name);
+            if (triggerEvent == TriggerEvent.TargetConfirming && data is CardUseStruct use)
+            {
+                room.CancelTarget(ref use, player); // Room::cancelTarget(use, player);
+                data = use;
+                return true;
+            }
+            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && room.GetCardPlace(move.Card_ids[0]) == Place.PlaceDelayedTrick)
+            {
+                room.SetEmotion(ask_who, "cancel");
+                System.Threading.Thread.Sleep(400);
 
-            room.CancelTarget(ref use, player); // Room::cancelTarget(use, player);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_NATURAL_ENTER, string.Empty)
+                {
+                    Card = move.Reason.Card
+                };
+                CardsMoveStruct move2 = new CardsMoveStruct(move.Card_ids, null, Place.DiscardPile, reason);
+                room.MoveCardsAtomic(move2, true);
+            }
 
-            data = use;
             return false;
         }
     }
@@ -4050,13 +4282,26 @@ namespace SanguoshaServer.Game
     {
         public Jianchu() : base("jianchu")
         {
-            events.Add(TriggerEvent.TargetChosen);
+            events = new List<TriggerEvent> { TriggerEvent.TargetChosen, TriggerEvent.CardsMoveOneTime };
             frequency = Frequency.Frequent;
             skill_type = SkillType.Attack;
         }
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.To_place == Place.PlaceTable
+                && move.From != null && move.Reason.Reason == MoveReason.S_REASON_DISMANTLE && move.Reason.SkillName == Name 
+                && move.From.Name == move.Reason.TargetId && move.Card_ids.Count == 1)
+            {
+                bool equip = Engine.GetFunctionCard(room.GetCard(move.Card_ids[0]).Name) is EquipCard;
+                string tag_name = string.Format("{0}_{1}", Name, move.Reason.TargetId);
+                Player pangde = room.FindPlayer(move.Reason.PlayerId, true);
+                pangde.SetTag(tag_name, equip);
+            }
+        }
+
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null)
+            if (triggerEvent == TriggerEvent.TargetChosen && base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null)
             {
                 FunctionCard fcard = Engine.GetFunctionCard(use.Card.Name);
                 if (fcard is Slash)
@@ -4088,44 +4333,44 @@ namespace SanguoshaServer.Game
         {
             int to_throw = room.AskForCardChosen(pangde, target, "he", Name, false, HandlingMethod.MethodDiscard);
             List<int> ids = new List<int> { to_throw };
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_DISMANTLE, pangde.Name, target.Name, Name, null);
+            string tag_name = string.Format("{0}_{1}", Name, target.Name);
+            pangde.RemoveTag(tag_name);
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_DISMANTLE, pangde.Name, target.Name, Name, string.Empty)
+            {
+                General = RoomLogic.GetGeneralSkin(room, pangde, Name, info.SkillPosition)
+            };
             room.ThrowCard(ref ids, reason, target, pangde);
-
             CardUseStruct use = (CardUseStruct)data;
             if (ids.Count > 0)
             {
-                WrappedCard card = room.GetCard(ids[0]);
-                FunctionCard fcard = Engine.GetFunctionCard(card.Name);
-                if (fcard is EquipCard)
+                Debug.Assert(pangde.ContainsTag(tag_name), "jianchu tag error!");
+
+                if ((bool)pangde.GetTag(tag_name))
                 {
-                    int index = use.To.IndexOf(target);
-                    bool done = false;
+                    int index = 0;
                     for (int i = 0; i < use.EffectCount.Count; i++)
                     {
-                        EffctCount effect = use.EffectCount[i];
-                        if (effect.Index == index)
+                        CardBasicEffect effect = use.EffectCount[i];
+                        if (effect.To == target)
                         {
-                            effect.Count = 0;
-                            done = true;
-                            use.EffectCount[i] = effect;
+                            index++;
+                            if (index == info.Times)
+                            {
+                                effect.Effect2 = 0;
+                                break;
+                            }
                         }
                     }
-                    if (!done)
-                    {
-                        EffctCount effect = new EffctCount(pangde, target, 0)
-                        {
-                            Index = index
-                        };
-                        use.EffectCount.Add(effect);
-                    }
+
                     data = use;
                 }
                 else
                 {
-                    List<int> card_ids = room.GetCardIdsOnTable(use.Card);
-                    if (card_ids.Count > 0)
+                    List<int> card_ids = room.GetCardIdsOnTable(room.GetSubCards(use.Card));
+                    if (card_ids.Count > 0 && card_ids.SequenceEqual(use.Card.SubCards))
                     {
-                        room.ObtainCard(target, card_ids, new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GOTBACK, target.Name));
+                        room.RemoveSubCards(use.Card);
+                        room.ObtainCard(target, ref card_ids, new CardMoveReason(MoveReason.S_REASON_GOTBACK, target.Name));
                     }
                 }
             }
@@ -4137,45 +4382,24 @@ namespace SanguoshaServer.Game
     {
         public Leiji() : base("leiji")
         {
-            events.Add(TriggerEvent.CardResponded);// << FinishJudge;
-            priority.Add(TriggerEvent.CardResponded, 3);
-            priority.Add(TriggerEvent.FinishJudge, -1);
+            events.Add(TriggerEvent.CardResponded);
             skill_type = SkillType.Attack;
         }
-        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
-        {
-            if (triggerEvent == TriggerEvent.CardResponded && base.Triggerable(player, room) && data is CardResponseStruct resp)
-            {
-                WrappedCard card_star = resp.Card;
-                if (card_star.Name == "Jink")
-                    player.AddMark("leiji_postpone");
-            }
-        }
+
         public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             List<TriggerStruct> skill_list = new List<TriggerStruct>();
-            if (triggerEvent == TriggerEvent.CardResponded && base.Triggerable(player, room) && player.GetMark("leiji_postpone") > 0
-                && data is CardResponseStruct resp)
+            if (triggerEvent == TriggerEvent.CardResponded && base.Triggerable(player, room) && data is CardResponseStruct resp)
             {
                 WrappedCard card_star = resp.Card;
-                if (card_star.Name == "Jink" && (!room.ContainsTag("judge") || (int)room.GetTag("judge") == 0))
+                if (card_star.Name == Jink.ClassName)
                     skill_list.Add(new TriggerStruct(Name, player));
-            }
-            else if (triggerEvent == TriggerEvent.FinishJudge)
-            {
-                List<Player> jiaozhus = RoomLogic.FindPlayersBySkillName(room, Name);
-                foreach (Player jiaozhu in jiaozhus) {
-                    int postponed = jiaozhu.GetMark("leiji_postpone");
-                    if (postponed > 0)
-                        skill_list.Add(new TriggerStruct(Name, jiaozhu));
-                }
             }
 
             return skill_list;
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            player.RemoveMark("leiji_postpone");
             Player target = room.AskForPlayerChosen(player, room.GetAlivePlayers(), Name, "leiji-invoke", true, true, info.SkillPosition);
             if (target != null)
             {
@@ -4201,12 +4425,13 @@ namespace SanguoshaServer.Game
                     Good = true,
                     Negative = true,
                     Reason = Name,
-                    Who = target
+                    Who = target,
+                    PlayAnimation = true
                 };
 
                 room.Judge(ref judge);
 
-                if (!judge.IsGood())
+                if (!judge.IsGood() && target.Alive)
                     room.Damage(new DamageStruct(Name, zhangjiao, target, 2, DamageStruct.DamageNature.Thunder));
             }
 
@@ -4244,12 +4469,12 @@ namespace SanguoshaServer.Game
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
             JudgeStruct judge = (JudgeStruct)data;
-
             List<string> prompt_list = new List<string> {"@guidao-card" , judge.Who.Name, string.Empty, Name,
                          judge.Reason };
             string prompt = string.Join(":", prompt_list);
-
+            room.SetTag(Name, data);
             WrappedCard card = room.AskForCard(player, Name, ".|black", prompt, data, HandlingMethod.MethodResponse, judge.Who, true);
+            room.RemoveTag(Name);
             if (card != null)
             {
                 room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
@@ -4272,7 +4497,7 @@ namespace SanguoshaServer.Game
     {
         public Beige() : base("beige")
         {
-            events = new List<TriggerEvent> { TriggerEvent.Damaged, TriggerEvent.FinishJudge };
+            events = new List<TriggerEvent> { TriggerEvent.Damaged };
         }
         public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
@@ -4290,14 +4515,7 @@ namespace SanguoshaServer.Game
                 }
 
             }
-            else if (triggerEvent == TriggerEvent.FinishJudge && data is JudgeStruct judge)
-            {
-                if (judge.Reason == Name)
-                {
-                    judge.Pattern = ((int)(judge.Card.Suit)).ToString();
-                    data = judge;
-                }
-            }
+
             return skill_list;
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player caiwenji, TriggerStruct info)
@@ -4331,7 +4549,7 @@ namespace SanguoshaServer.Game
 
             room.Judge(ref judge);
 
-            WrappedCard.CardSuit suit = (WrappedCard.CardSuit)(int.Parse(judge.Pattern));
+            WrappedCard.CardSuit suit = judge.JudgeSuit;
             switch (suit)
             {
                 case WrappedCard.CardSuit.Heart:
@@ -4341,7 +4559,7 @@ namespace SanguoshaServer.Game
                             Who = caiwenji,
                             Recover = 1
                         };
-                        room.Recover(player, recover);
+                        room.Recover(player, recover, true);
 
                         break;
                     }
@@ -4353,7 +4571,7 @@ namespace SanguoshaServer.Game
                 case WrappedCard.CardSuit.Club:
                     {
                         if (damage.From != null && damage.From.Alive)
-                            room.AskForDiscard(damage.From, "beige_discard", 2, 2, false, true);
+                            room.AskForDiscard(damage.From, Name, 2, 2, false, true, "@beige-discard");
 
                         break;
                     }
@@ -4393,57 +4611,26 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
+            room.SendCompulsoryTriggerLog(player, Name);
             room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
             return info;
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            room.NotifySkillInvoked(player, Name);
-
             DeathStruct death = (DeathStruct)data;
             Player target = death.Damage.From;
             string choice = "head_general";
 
-            if (room.GetAI(player) != null)
-            {
-                List<string> choices = new List<string>();
-                if (!target.General1.Contains("sujiang"))
-                    choices.Add("head_general");
+            room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, player.Name, target.Name);
 
-                if (!string.IsNullOrEmpty(target.General2) && !target.General2.Contains("sujiang"))
-                    choices.Add("deputy_general");
+            List<string> choices = new List<string>();
+            if (!target.General1.Contains("sujiang"))
+                choices.Add("head_general");
 
-                choice = room.AskForChoice(player, Name, string.Join("+", choices), null, target);
-            }
-            else
-            {
-                List<string> generals = new List<string>();
-                if (!target.General1.Contains("sujiang"))
-                {
-                    string g = target.General1;
-                    if (g.Contains("anjiang"))
-                        g = g + "_head";
-                    generals.Add(g);
-                }
+            if (!string.IsNullOrEmpty(target.General2) && !target.General2.Contains("sujiang"))
+                choices.Add("deputy_general");
+            choice = room.AskForChoice(player, Name, string.Join("+", choices), new List<string> { "@duanchang-target:" + target.Name }, target);
 
-                if (!string.IsNullOrEmpty(target.General2) && !target.General2.Contains("sujiang"))
-                {
-                    string g = target.General2;
-                    if (g.Contains("anjiang"))
-                        g = g + "_deputy";
-                    generals.Add(g);
-                }
-
-                string general = generals[0];
-                if (generals.Count == 2)
-                    general = room.AskForGeneral(player, generals, generals[0], true, "#duanchang:" + target.Name, target);
-
-                if (general == target.General1 || general == "anjiang_head")
-                    choice = "head_general";
-                else
-                    choice = "deputy_general";
-
-            }
             LogMessage log = new LogMessage
             {
                 Type = choice == "head_general" ? "#DuanchangLoseHeadSkills" : "#DuanchangLoseDeputySkills",
@@ -4474,7 +4661,8 @@ namespace SanguoshaServer.Game
     }
     public class XiongyiCard : SkillCard
     {
-        public XiongyiCard() : base("XiongyiCard")
+        public static string ClassName = "XiongyiCard";
+        public XiongyiCard() : base(ClassName)
         {
             target_fixed = true;
         }
@@ -4503,7 +4691,7 @@ namespace SanguoshaServer.Game
             bool invoke = true;
             int n = RoomLogic.GetPlayerNumWithSameKingdom(room, card_use.From);
             foreach (string kingdom in kingdom_list) {
-                if (card_use.From.Role == "careerist")
+                if (card_use.From.GetRoleEnum() == PlayerRole.Careerist)
                 {
                     if (kingdom == "careerist")
                         continue;
@@ -4525,7 +4713,7 @@ namespace SanguoshaServer.Game
                     Who = card_use.From,
                     Recover = 1
                 };
-                room.Recover(card_use.From, recover);
+                room.Recover(card_use.From, recover, true);
             }
         }
         public override void OnEffect(Room room, CardEffectStruct effect)
@@ -4547,7 +4735,7 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, Player player)
         {
-            WrappedCard card = new WrappedCard("XiongyiCard")
+            WrappedCard card = new WrappedCard(XiongyiCard.ClassName)
             {
                 ShowSkill = Name,
                 Skill = Name,
@@ -4588,9 +4776,9 @@ namespace SanguoshaServer.Game
 
             LogMessage log = new LogMessage
             {
-                Type = "#Mingshi",
+                Type = "#ReduceDamage",
                 From = player.Name,
-                Arg = damage.Damage.ToString(),
+                Arg = Name,
                 Arg2 = (--damage.Damage).ToString()
             };
             room.SendLog(log);
@@ -4607,11 +4795,14 @@ namespace SanguoshaServer.Game
         public LirangCard() : base("LirangCard")
         {
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override void OnUse(Room room, CardUseStruct card_use)
         {
             card_use.From.SetTag("lirang_target", card_use.To[0].Name);
+
+            ResultStruct result = card_use.From.Result;
+            result.Assist += card_use.Card.SubCards.Count;
+            card_use.From.Result = result;
         }
     }
     public class LirangViewAsSkill : ViewAsSkill
@@ -4645,8 +4836,8 @@ namespace SanguoshaServer.Game
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
-            if (move.From != null && base.Triggerable(move.From, room) && 
-                (move.Reason.Reason & CardMoveReason.MoveReason.S_MASK_BASIC_REASON) == CardMoveReason.MoveReason.S_REASON_DISCARD && move.To_place == Place.PlaceTable)
+            if (move.From != null && base.Triggerable(move.From, room) &&
+                (move.Reason.Reason & MoveReason.S_MASK_BASIC_REASON) == MoveReason.S_REASON_DISCARD && move.To_place == Place.PlaceTable)
             {
                 for (int i = 0; i < move.Card_ids.Count; i++)
                 {
@@ -4661,7 +4852,7 @@ namespace SanguoshaServer.Game
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
 
             if (move.From != null && base.Triggerable(move.From, room)
-                && (move.Reason.Reason & CardMoveReason.MoveReason.S_MASK_BASIC_REASON) == CardMoveReason.MoveReason.S_REASON_DISCARD && move.To_place == Place.DiscardPile)
+                && (move.Reason.Reason & MoveReason.S_MASK_BASIC_REASON) == MoveReason.S_REASON_DISCARD && move.To_place == Place.DiscardPile)
             {
                 for (int i = 0; i < move.Card_ids.Count; i++)
                 {
@@ -4678,7 +4869,7 @@ namespace SanguoshaServer.Game
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
             List<int> cards = new List<int>();
             if (move.From != null && base.Triggerable(move.From, room)
-                && (move.Reason.Reason & CardMoveReason.MoveReason.S_MASK_BASIC_REASON) == CardMoveReason.MoveReason.S_REASON_DISCARD && move.To_place == Place.DiscardPile)
+                && (move.Reason.Reason & MoveReason.S_MASK_BASIC_REASON) == MoveReason.S_REASON_DISCARD && move.To_place == Place.DiscardPile)
             {
                 for (int i = 0; i < move.Card_ids.Count; i++)
                 {
@@ -4692,14 +4883,15 @@ namespace SanguoshaServer.Game
             while (cards.Count > 0)
             {
                 player.PileChange("#" + Name, cards);
-                WrappedCard card = room.AskForUseCard(player, "@@lirang", "@lirang-distribute:::" + cards.Count.ToString(), -1, HandlingMethod.MethodNone, true, info.SkillPosition);
+                WrappedCard card = room.AskForUseCard(player, "@@lirang", "@lirang-distribute:::" + cards.Count.ToString(), null, -1, HandlingMethod.MethodNone, true, info.SkillPosition);
                 player.PileChange("#" + Name, cards, false);
 
-                if (card != null)
+                if (card != null && card.SubCards.Count > 0)
                 {
-                    Player target = room.FindPlayer((string)player.GetTag("lirang_target"));
+                    Player target = room.FindPlayer((string)player.GetTag("lirang_target"), true);
                     player.RemoveTag("lirang_target");
-                    CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_PREVIEWGIVE, player.Name, target.Name, Name, null);
+                    Debug.Assert(target.Alive);
+                    CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_PREVIEWGIVE, player.Name, target.Name, Name, null);
                     CardsMoveStruct moves = new CardsMoveStruct(card.SubCards, target, Place.PlaceHand, reason);
                     lirangs.Add(moves);
                     foreach (int id in card.SubCards)
@@ -4713,7 +4905,7 @@ namespace SanguoshaServer.Game
             {
                 player.AddMark(Name);
                 int index = player.GetMark(Name);
-                room.SetTag(string.Format("lirang_this_time_{0}_{1}", player.Name ,index), lirangs);
+                room.SetTag(string.Format("lirang_this_time_{0}_{1}", player.Name, index), lirangs);
                 room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
                 return info;
             }
@@ -4729,7 +4921,8 @@ namespace SanguoshaServer.Game
             player.RemoveMark(Name);
             List<CardsMoveStruct> moves = new List<CardsMoveStruct>();
             List<Player> targets = new List<Player>();
-            foreach (CardsMoveStruct move_struct in lirangs) {
+            foreach (CardsMoveStruct move_struct in lirangs)
+            {
                 List<int> ids = move_struct.Card_ids;
                 for (int i = 0; i < ids.Count; i++)
                 {
@@ -4777,12 +4970,12 @@ namespace SanguoshaServer.Game
         {
             CardsMoveOneTimeStruct move = (CardsMoveOneTimeStruct)data;
             if (move.From != null)
-            for (int i = 0; i < move.Card_ids.Count; i++)
-            {
-                WrappedCard card = room.GetCard(move.Card_ids[i]);
-                if (move.From_places[i] == Place.PlaceTable && card.HasFlag("lirang"))
-                    card.SetFlags("-lirang");
-            }
+                for (int i = 0; i < move.Card_ids.Count; i++)
+                {
+                    WrappedCard card = room.GetCard(move.Card_ids[i]);
+                    if (move.From_places[i] == Place.PlaceTable && card.HasFlag("lirang"))
+                        card.SetFlags("-lirang");
+                }
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
@@ -4802,7 +4995,7 @@ namespace SanguoshaServer.Game
                 bool can_invoke = false;
                 List<Player> other_players = room.GetOtherPlayers(jiling);
                 foreach (Player player in other_players) {
-                    if (!player.IsKongcheng())
+                    if (RoomLogic.CanBePindianBy(room, player, jiling))
                     {
                         can_invoke = true;
                         break;
@@ -4816,12 +5009,13 @@ namespace SanguoshaServer.Game
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player jiling, ref object data, Player ask_who, TriggerStruct info)
         {
             List<Player> targets = new List<Player>();
-            foreach (Player p in room.GetOtherPlayers(jiling)) {
-                if (!p.IsKongcheng())
+            foreach (Player p in room.GetOtherPlayers(jiling))
+            {
+                if (RoomLogic.CanBePindianBy(room, p, jiling))
                     targets.Add(p);
             }
-            Player victim;
-            if ((victim = room.AskForPlayerChosen(jiling, targets, "shuangren", "@shuangren", true, true, info.SkillPosition)) != null)
+            Player victim = null;
+            if ((victim = room.AskForPlayerChosen(jiling, targets, Name, "@shuangren", true, true, info.SkillPosition)) != null)
             {
                 GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, jiling, Name, info.SkillPosition);
                 room.BroadcastSkillInvoke(Name, jiling, info.SkillPosition);
@@ -4837,11 +5031,11 @@ namespace SanguoshaServer.Game
             room.RemoveTag("shuangren_pd");
             if (pd.From != null)
             {
-                Player target = pd.To;
-                bool success = room.Pindian(pd);
-                if (success)
+                Player target = pd.Tos[0];
+                room.Pindian(ref pd);
+                if (pd.Success)
                 {
-                    WrappedCard slash = new WrappedCard("Slash")
+                    WrappedCard slash = new WrappedCard(Slash.ClassName)
                     {
                         DistanceLimited = false,
                         Skill = "_shuangren"
@@ -4853,7 +5047,7 @@ namespace SanguoshaServer.Game
                     }
                     if (targets.Count > 0)
                     {
-                        Player slasher = room.AskForPlayerChosen(jiling, targets, "shuangren-slash", "@dummy-slash");
+                        Player slasher = room.AskForPlayerChosen(jiling, targets,Name, "@dummy-slash", false, false, info.SkillPosition);
                         room.UseCard(new CardUseStruct(slash, jiling, slasher), false);
                     }
                 }
@@ -4998,9 +5192,9 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player panfeng, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (room.AskForSkillInvoke(panfeng, Name, data, info.SkillPosition))
+            if (data is DamageStruct damage && room.AskForSkillInvoke(panfeng, Name, damage.To, info.SkillPosition))
             {
-                room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, panfeng.Name, ((DamageStruct)data).To.Name);
+                room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, panfeng.Name, damage.To.Name);
                 return info;
             }
             return new TriggerStruct();
@@ -5011,12 +5205,24 @@ namespace SanguoshaServer.Game
             Player target = damage.To;
 
             List<int> disable_equiplist = new List<int>(), equiplist = new List<int>();
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 6; i++)
             {
-                if (target.GetEquip(i) >= 0 && !RoomLogic.CanDiscard(room, panfeng, target, target.GetEquip(i)) && panfeng.GetEquip(i) >= 0)
-                    disable_equiplist.Add(target.GetEquip(i));
-                if (target.GetEquip(i) >= 0 && panfeng.GetEquip(i) >= 0)
-                    equiplist.Add(target.GetEquip(i));
+                int id = target.GetEquip(i);
+                if (id >= 0)
+                {
+                    bool discard = true;
+                    if (!RoomLogic.CanDiscard(room, panfeng, target, id))
+                        discard = false;
+
+                    bool put = false;
+                    if (RoomLogic.CanPutEquip(panfeng, room.GetCard(id)))
+                    {
+                        put = true;
+                        equiplist.Add(id);
+                    }
+
+                    if (!discard && !put) disable_equiplist.Add(id);
+                }
             }
             int card_id = room.AskForCardChosen(panfeng, target, "e", Name, false, HandlingMethod.MethodNone, disable_equiplist);
             WrappedCard card = room.GetCard(card_id);
@@ -5024,7 +5230,7 @@ namespace SanguoshaServer.Game
             List<string> choicelist = new List<string>();
             if (RoomLogic.CanDiscard(room, panfeng, target, card_id))
                 choicelist.Add("throw");
-            if (!equiplist.Contains(card_id))
+            if (equiplist.Contains(card_id))
                 choicelist.Add("move");
 
             string choice = room.AskForChoice(panfeng, "kuangfu", string.Join("+", choicelist), new List<string> { "@kuangfu:::" + card.Name });
@@ -5043,6 +5249,115 @@ namespace SanguoshaServer.Game
             return false;
         }
     }
+
+    public class KuangfuJX : TriggerSkill
+    {
+        public KuangfuJX() : base("kuangfu_jx")
+        {
+            events = new List<TriggerEvent> { TriggerEvent.Damage };
+            skill_type = SkillType.Attack;
+            view_as_skill = new KuangfuJXVS();
+        }
+
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            if (data is DamageStruct damage && player != null && player.HasFlag(Name) && damage.Card != null && damage.Card.Name.Contains(Slash.ClassName)
+                && damage.Card.GetSkillName() == Name)
+                player.SetFlags("-kuangfu_jx");
+        }
+
+        public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            return new List<TriggerStruct>();
+        }
+    }
+
+    public class KuangfuJXVS : ZeroCardViewAsSkill
+    {
+        public KuangfuJXVS() : base("kuangfu_jx")
+        {
+        }
+        public override bool IsEnabledAtPlay(Room room, Player player)
+        {
+            if (!player.HasUsed(KuangfuCard.ClassName))
+            {
+                foreach (Player p in room.GetAlivePlayers())
+                    if (p.HasEquip() && RoomLogic.CanDiscard(room, player, p, "e"))
+                        return true;
+            }
+
+            return false;
+        }
+        public override WrappedCard ViewAs(Room room, Player player)
+        {
+            return new WrappedCard(KuangfuCard.ClassName) { Skill = Name, ShowSkill = Name };
+        }
+    }
+
+    public class KuangfuCard : SkillCard
+    {
+        public static string ClassName = "KuangfuCard";
+        public KuangfuCard() : base(ClassName)
+        {
+            target_fixed = true;
+        }
+
+        public override void Use(Room room, CardUseStruct card_use)
+        {
+            Player player = card_use.From;
+            List<Player> targets = new List<Player>();
+            foreach (Player p in room.GetAlivePlayers())
+                if (p.HasEquip() && RoomLogic.CanDiscard(room, player, p, "e"))
+                    targets.Add(p);
+
+            if (targets.Count > 0)
+            {
+                Player target = room.AskForPlayerChosen(player, targets, "kuangfu_jx", "@kuangfu_jx-equip", false, false, card_use.Card.SkillPosition);
+                if (target != null)
+                {
+                    int id = room.AskForCardChosen(player, target, "e", "kuangfu_jx", false, HandlingMethod.MethodDiscard);
+                    bool self = room.GetCardOwner(id) == player;
+                    room.ThrowCard(id, target, player);
+
+                    if (player.Alive)
+                    {
+                        WrappedCard slash = new WrappedCard(Slash.ClassName)
+                        {
+                            DistanceLimited = false,
+                            Skill = "_kuangfu_jx"
+                        };
+                        targets.Clear();
+                        foreach (Player p in room.GetOtherPlayers(player))
+                        {
+                            if (RoomLogic.CanSlash(room, player, p, slash))
+                                targets.Add(p);
+                        }
+                        if (targets.Count > 0)
+                        {
+                            player.SetFlags("kuangfu_jx");
+                            Player slasher = room.AskForPlayerChosen(player, targets, "kuangfu_jx", "@dummy-slash", false, false, card_use.Card.SkillPosition);
+                            room.UseCard(new CardUseStruct(slash, player, slasher), false);
+
+                            if (player.Alive)
+                            {
+                                if (self && !player.HasFlag("kuangfu_jx"))
+                                {
+                                    room.DrawCards(player, 2, "kuangfu_jx");
+                                }
+                                else if (!self && player.HasFlag("kuangfu_jx"))
+                                {
+                                    room.AskForDiscard(player, "kuangfu_jx", 2, 2, false, false, "@kuangfu_jx-disacard", false, card_use.Card.SkillPosition);
+                                }
+
+                                player.SetFlags("-kuangfu_jx");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     public class HuoshuiCard : SkillCard
     {
         public HuoshuiCard() : base("HuoshuiCard")
@@ -5153,12 +5468,11 @@ namespace SanguoshaServer.Game
     {
         public QingchengCard() : base("QingchengCard")
         {
-            handling_method = HandlingMethod.MethodDiscard;
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
             if (!to_select.HasShownAllGenerals() || to_select.General1.Contains("sujiang") || string.IsNullOrEmpty(to_select.General2)
-                || to_select.General2.Contains("sujiang") || Engine.GetGeneral(to_select.General1).IsLord()) return false;
+                || to_select.General2.Contains("sujiang") || Engine.GetGeneral(to_select.General1, room.Setting.GameMode).IsLord()) return false;
             return targets.Count == 0 && to_select != Self;
         }
         public override bool TargetsFeasible(Room room, List<Player> targets, Player Self, WrappedCard card)
@@ -5169,16 +5483,16 @@ namespace SanguoshaServer.Game
         {
             Player player = effect.From, to = effect.To;
             List<string> choices = new List<string>();
-            if (!Engine.GetGeneral(to.General1).IsLord() && !to.General1.Contains("sujiang"))
+            if (!Engine.GetGeneral(to.General1, room.Setting.GameMode).IsLord() && !to.General1.Contains("sujiang") && !to.IsDuanchang(true))
                 choices.Add(to.General1);
-            if (!string.IsNullOrEmpty(to.General2) && !to.General2.Contains("sujiang"))
+            if (!string.IsNullOrEmpty(to.General2) && !to.General2.Contains("sujiang") && !to.IsDuanchang(false))
                 choices.Add(to.General2);
 
             if (choices.Count > 0)
             {
                 string choice = choices[0];
                 if (choices.Count == 2)
-                    choice = room.AskForGeneral(player, choices, null, true, "@qingcheng:" + to.Name);
+                    choice = room.AskForGeneral(player, choices, null, true, "qingcheng");
 
                 room.HideGeneral(to, choice == to.General1);
             }
@@ -5198,9 +5512,20 @@ namespace SanguoshaServer.Game
                     Player target = room.AskForPlayerChosen(player, targets, "qingcheng", "@qingcheng", true, false, effect.Card.SkillPosition);
                     if (target != null)
                     {
-                        CardEffectStruct new_effect = effect;
-                        effect.To = target;
-                        OnEffect(room, new_effect);
+                        choices.Clear();
+                        if (!Engine.GetGeneral(target.General1, room.Setting.GameMode).IsLord() && !target.General1.Contains("sujiang") && !target.IsDuanchang(true))
+                            choices.Add(target.General1);
+                        if (!string.IsNullOrEmpty(target.General2) && !target.General2.Contains("sujiang") && !target.IsDuanchang(false))
+                            choices.Add(target.General2);
+
+                        if (choices.Count > 0)
+                        {
+                            string choice = choices[0];
+                            if (choices.Count == 2)
+                                choice = room.AskForGeneral(player, choices, null, true, "qingcheng");
+
+                            room.HideGeneral(target, choice == target.General1);
+                        }
                     }
                 }
             }
@@ -5234,14 +5559,7 @@ namespace SanguoshaServer.Game
 {
         public ZhihengCard() : base("ZhihengCard")
         {
-    target_fixed = true;
-        }
-        public override void OnUse(Room room, CardUseStruct card_use)
-        {
-            Player source = card_use.From;
-            if (!string.IsNullOrEmpty(card_use.Card.ShowSkill))
-                room.BroadcastSkillInvoke("zhiheng", source, card_use.Card.SkillPosition);
-            base.OnUse(room, card_use);
+            target_fixed = true;
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
@@ -5261,7 +5579,7 @@ namespace SanguoshaServer.Game
         public override bool ViewFilter(Room room, List<WrappedCard> selected, WrappedCard to_select, Player player)
         {
             if (selected.Count >= player.MaxHp)
-                return !RoomLogic.IsJilei(room, player, to_select) && player.GetTreasure() && player.Treasure.Value == "LuminouSpearl"
+                return !RoomLogic.IsJilei(room, player, to_select) && player.GetTreasure() && player.Treasure.Value == LuminouSpearl.ClassName
                         && to_select.Id != player.Treasure.Key && !selected.Contains(room.GetCard(player.Treasure.Key));
 
             return !RoomLogic.IsJilei(room, player, to_select) && selected.Count < player.MaxHp;
@@ -5271,11 +5589,12 @@ namespace SanguoshaServer.Game
             if (cards.Count == 0)
                 return null;
 
-            WrappedCard zhiheng_card = new WrappedCard("ZhihengCard");
+            WrappedCard zhiheng_card = new WrappedCard("ZhihengCard")
+            {
+                Skill = Name,
+                ShowSkill = Name
+            };
             zhiheng_card.AddSubCards(cards);
-            zhiheng_card.Skill = Name;
-            zhiheng_card.ShowSkill = Name;
-            zhiheng_card.Mute = true;
             return zhiheng_card;
         }
     }
@@ -5294,14 +5613,14 @@ namespace SanguoshaServer.Game
         {
             if (room.GetRoomState().GetCurrentCardUseReason() == CardUseReason.CARD_USE_REASON_RESPONSE_USE)
             {
-                WrappedCard card = new WrappedCard("Dismantlement");
+                WrappedCard card = new WrappedCard(Dismantlement.ClassName);
                 if (Engine.MatchExpPattern(room, pattern, player, card)) return true;
             }
             return false;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard dismantlement = new WrappedCard("Dismantlement");
+            WrappedCard dismantlement = new WrappedCard(Dismantlement.ClassName);
             dismantlement.AddSubCard(card);
             dismantlement.Skill = Name;
             dismantlement.ShowSkill = Name;
@@ -5361,10 +5680,18 @@ namespace SanguoshaServer.Game
         {
             if (RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, null, info.SkillPosition))
             {
+                if (RoomLogic.PlayerHasShownSkill(room, player, Name))
+                    room.NotifySkillInvoked(player, Name);
+
                 room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
                 return info;
             }
             return new TriggerStruct();
+        }
+
+        public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
+        {
+            return false;
         }
     }
     public class KejiMax : MaxCardsSkill
@@ -5462,25 +5789,33 @@ namespace SanguoshaServer.Game
                     {
                         if (equip_index != -1)
                         {
-                            if (p.GetEquip(equip_index) < 0)
+                            if (p.GetEquip(equip_index) < 0 && RoomLogic.CanPutEquip(p, card))
                                 tos.Add(p);
                         }
-                        else
-                        {
-                            if (RoomLogic.IsProhibited(room, player, p, card) == null && !RoomLogic.PlayerContainsTrick(room, p, card.Name))
+                        else if (RoomLogic.IsProhibited(room, null, p, card) == null && !RoomLogic.PlayerContainsTrick(room, p, card.Name) && p.JudgingAreaAvailable)
                                 tos.Add(p);
-                        }
                     }
 
                     room.SetTag("MouduanTarget", target1);
                     string position = info.SkillPosition;
                     Player to = room.AskForPlayerChosen(player, tos, Name, "@mouduan-to:::" + card.Name, false, false, position);
+                    room.RemoveTag("MouduanTarget");
                     if (to != null)
                     {
-                        room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, target1.Name, to.Name);
-                        CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_TRANSFER, player.Name, Name, null);
-                        room.MoveCardTo(card, target1, to, place, reason);
+                        if ((place == Place.PlaceDelayedTrick && target1 != player) || (place == Place.PlaceEquip && to != player))
+                        {
+                            ResultStruct result = player.Result;
+                            result.Assist++;
+                            player.Result = result;
+                        }
 
+                        room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, target1.Name, to.Name);
+                        CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_TRANSFER, player.Name, Name, null)
+                        {
+                            Card = card
+                        };
+                        room.MoveCardTo(card, target1, to, place, reason);
+                        /*
                         if (place == Place.PlaceDelayedTrick)
                         {
                             CardUseStruct use = new CardUseStruct(card, null, to);
@@ -5493,8 +5828,8 @@ namespace SanguoshaServer.Game
                             foreach (Player p in room.GetAllPlayers())
                                 room.RoomThread.Trigger(TriggerEvent.TargetConfirmed, room, p, ref _data);
                         }
+                        */
                     }
-                    room.RemoveTag("MouduanTarget");
                 }
             }
             return false;
@@ -5505,6 +5840,7 @@ namespace SanguoshaServer.Game
         public KurouCard() : base("KurouCard")
         {
             target_fixed = true;
+            will_throw = true;
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
@@ -5513,9 +5849,31 @@ namespace SanguoshaServer.Game
             card_use.From.SetFlags("kurou");
         }
     }
-    public class Kurou : OneCardViewAsSkill
+
+    public class Kurou : TriggerSkill
     {
         public Kurou() : base("kurou")
+        {
+            events.Add(TriggerEvent.EventPhaseChanging);
+            skill_type = SkillType.Masochism;
+            view_as_skill = new KurouVS();
+        }
+
+        public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            if (data is PhaseChangeStruct change && change.From == PlayerPhase.Play && player.HasFlag(Name))
+                player.SetFlags("-kurou");
+        }
+
+        public override List<TriggerStruct> Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data)
+        {
+            return new List<TriggerStruct>();
+        }
+    }
+
+    public class KurouVS : OneCardViewAsSkill
+    {
+        public KurouVS() : base("kurou")
         {
 
             filter_pattern = "..!";
@@ -5537,7 +5895,7 @@ namespace SanguoshaServer.Game
     }
     public class KurouTM : TargetModSkill
     {
-        public KurouTM() : base("#kurou-tm")
+        public KurouTM() : base("#kurou-tm", false)
         {
         }
         public override int GetResidueNum(Room room, Player from, WrappedCard card)
@@ -5603,55 +5961,53 @@ namespace SanguoshaServer.Game
             WrappedCard card = room.GetCard(card_id);
             room.ShowCard(source, card_id, "fanjian");
             room.FocusAll(2000);
-            room.SetTag("fanjian", card);
 
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, source.Name, target.Name, "fanjian", null);
-            room.MoveCardTo(card, target, Place.PlaceHand, reason, false);
-            List<string> choices = new List<string> { string.Format("@show:::{0}", WrappedCard.GetSuitString(card.Suit)) };
             WrappedCard.CardSuit suit = card.Suit;
-            if (target.Hp > 0)
-                choices.Add("lose");
+            target.SetTag("fanjian", suit);
 
-            string choice = room.AskForChoice(target, "fanjian", string.Join("+", choices));
-            room.RemoveTag("fanjian");
-            if (choice.Contains("show"))
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, source.Name, target.Name, "fanjian", null);
+            room.MoveCardTo(card, target, Place.PlaceHand, reason, false);
+            List<string> choices = new List<string>(), promopts = new List<string> { "fanjian" };
+            if (!target.IsKongcheng())
             {
-                room.ShowAllCards(target);
-                LogMessage ll = new LogMessage
+                choices.Add("show");
+                promopts.Add(string.Format("@fanjian-show:::{0}", WrappedCard.GetSuitIcon(card.Suit)));
+            }
+
+            if (target.Hp > 0)
+                choices.Add("losehp");
+
+            if (choices.Count > 0)
+            {
+                string choice = room.AskForChoice(target, "fanjian", string.Join("+", choices), promopts);
+                target.RemoveTag("fanjian");
+                if (choice.Contains("show"))
                 {
-                    Type = "#fanjianshow",
-                    From = target.Name,
-                    Arg = WrappedCard.GetSuitString(card.Suit)
-                };
-                room.SendLog(ll);
+                    room.ShowAllCards(target);
 
-                List<int> slash = new List<int>();
-                foreach (int id in target.GetCards("he"))
-                    if (room.GetCard(id).Suit == suit)
-                        slash.Add(id);
+                    List<int> slash = new List<int>();
+                    foreach (int id in target.GetCards("he"))
+                        if (room.GetCard(id).Suit == suit)
+                            slash.Add(id);
 
-                if (slash.Count > 0)
-                    room.ThrowCard(ref slash, target);
+                    if (slash.Count > 0)
+                        room.ThrowCard(ref slash, target);
+                    else
+                    {
+                        LogMessage ll = new LogMessage
+                        {
+                            Type = "#fanjiannodis",
+                            From = target.Name,
+                            Arg = WrappedCard.GetSuitString(card.Suit)
+                        };
+                        room.SendLog(ll);
+                        room.LoseHp(target);
+                    }
+                }
                 else
                 {
-                    ll = new LogMessage
-                    {
-                        Type = "#fanjiannodis",
-                        From = target.Name,
-                        Arg = WrappedCard.GetSuitString(card.Suit)
-                    };
-                    room.SendLog(ll);
                     room.LoseHp(target);
                 }
-            }
-            else {
-                LogMessage ll = new LogMessage
-                {
-                    Type = "#fanjianlose",
-                    From = target.Name
-                };
-                room.SendLog(ll);
-                room.LoseHp(target);
             }
         }
     }
@@ -5689,14 +6045,14 @@ namespace SanguoshaServer.Game
         {
             if (room.GetRoomState().GetCurrentCardUseReason() == CardUseReason.CARD_USE_REASON_RESPONSE_USE)
             {
-                WrappedCard card = new WrappedCard("Indulgence");
+                WrappedCard card = new WrappedCard(Indulgence.ClassName);
                 if (Engine.MatchExpPattern(room, pattern, player, card)) return true;
             }
             return false;
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard indulgence = new WrappedCard("Indulgence");
+            WrappedCard indulgence = new WrappedCard(Indulgence.ClassName);
             indulgence.AddSubCard(card);
             indulgence.Skill = Name;
             indulgence.ShowSkill = Name;
@@ -5709,13 +6065,12 @@ namespace SanguoshaServer.Game
         public LiuliCard() : base("LiuliCard")
         {
         }
-        //mute = true;
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
             if (targets.Count > 0)
                 return false;
 
-            if (to_select.HasFlag("LiuliSlashSource") || to_select == Self)
+            if (to_select.HasFlag("LiuliSlashSource") || to_select.HasFlag("LiuliSlashTarget") || to_select == Self)
                 return false;
             
             Player from = null;
@@ -5727,7 +6082,8 @@ namespace SanguoshaServer.Game
                 }
             }
 
-            WrappedCard slash = (WrappedCard)room.GetTag("liuli");
+            CardUseStruct use = (CardUseStruct)room.GetTag("liuli");
+            WrappedCard slash = use.Card;
             if (from != null && RoomLogic.IsProhibited(room, from, to_select, slash) != null)
                 return false;
 
@@ -5749,11 +6105,15 @@ namespace SanguoshaServer.Game
             filter_pattern = "..!";
             response_pattern = "@@liuli";
         }
+
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard liuli_card = new WrappedCard("LiuliCard");
+            WrappedCard liuli_card = new WrappedCard("LiuliCard")
+            {
+                Skill = Name,
+                Mute = true
+            };
             liuli_card.AddSubCard(card);
-            liuli_card.Skill = Name;
             return liuli_card;
         }
     }
@@ -5777,7 +6137,8 @@ namespace SanguoshaServer.Game
                     players.Remove(use.From);
 
                     bool can_invoke = false;
-                    foreach (Player p in players) {
+                    foreach (Player p in players)
+                    {
                         if (RoomLogic.IsProhibited(room, use.From, p, use.Card) == null && RoomLogic.InMyAttackRange(room, daqiao, p))
                         {
                             can_invoke = true;
@@ -5794,15 +6155,43 @@ namespace SanguoshaServer.Game
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player daqiao, ref object data, Player ask_who, TriggerStruct info)
         {
             CardUseStruct use = (CardUseStruct)data;
+            use.From.SetFlags("LiuliSlashSource");      // a temp nasty trick
+
+            foreach (Player p in use.To)
+                p.SetFlags("LiuliSlashTarget");
+
             string prompt = "@liuli:" + use.From.Name;
-            use.From.SetFlags("LiuliSlashSource");
-            // a temp nasty trick
-            room.SetTag(Name, use.Card);             // for the client (UI)
-            WrappedCard c = room.AskForUseCard(daqiao, "@@liuli", prompt, -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
+            room.SetTag(Name, data);             // for the client (UI)
+
+            int index = 0;
+            for (int i = 0; i < use.EffectCount.Count; i++)
+            {
+                CardBasicEffect effect = use.EffectCount[i];
+                if (effect.To == daqiao)
+                {
+                    index++;
+                    if (index == info.Times)
+                    {
+                        daqiao.SetTag(Name, i);
+                        break;
+                    }
+                }
+            }
+
+            WrappedCard c = room.AskForUseCard(daqiao, "@@liuli", prompt, null, -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
+
             room.RemoveTag(Name);
+            daqiao.RemoveTag(Name);
+
             use.From.SetFlags("-LiuliSlashSource");
+            foreach (Player p in use.To)
+                p.SetFlags("-LiuliSlashTarget");
+
             if (c != null)
+            {
+                room.BroadcastSkillInvoke(Name, daqiao, info.SkillPosition);
                 return info;
+            }
 
             return new TriggerStruct();
         }
@@ -5810,56 +6199,115 @@ namespace SanguoshaServer.Game
         {
             CardUseStruct use = (CardUseStruct)data;
             List<Player> players = room.GetOtherPlayers(daqiao);
-            foreach (Player p in players) {
+            Player target = null;
+            foreach (Player p in players)
+            {
                 if (p.HasFlag("LiuliTarget"))
                 {
                     p.SetFlags("-LiuliTarget");
-                    use.To.Remove(daqiao);
-                    room.SlashSettlementFinished(daqiao, use.Card);
-                    use.To.Add(p);
-                    room.SortByActionOrder(ref use);
-                    data = use;
-                    room.RoomThread.Trigger(TriggerEvent.TargetConfirming, room, p, ref data);
-                    return false;
+                    target = p;
+                    break;
                 }
             }
 
-            return false;
+            if (use.To.Contains(target) && use.To.IndexOf(target) > use.To.IndexOf(daqiao))
+            {
+                use.To.Insert(use.To.IndexOf(target), target);
+                use.EffectCount.Insert(use.To.IndexOf(target), new CardBasicEffect(target, 0, 1, 0));
+
+                int index = 0, count = use.EffectCount.Count;
+                for (index = 0; index < count; index++)
+                {
+                    if (use.EffectCount[index].To == daqiao && !use.EffectCount[index].Triggered)
+                        break;
+                }
+                use.To.RemoveAt(index);
+                use.EffectCount.RemoveAt(index);
+            }
+            else
+            {
+                int index = 0, count = use.EffectCount.Count;
+                for (index = 0; index < count; index++)
+                {
+                    if (use.EffectCount[index].To == daqiao && !use.EffectCount[index].Triggered)
+                        break;
+                }
+                use.To.RemoveAt(index);
+                use.EffectCount.RemoveAt(index);
+
+                use.To.Add(target);
+                use.EffectCount.Add(new CardBasicEffect(target, 0, 1, 0));
+                room.SortByActionOrder(ref use);
+            }
+            room.SlashSettlementFinished(daqiao, use.Card);
+            data = use;
+
+            return true;
         }
     }
     public class Qianxun : TriggerSkill
     {
         public Qianxun() : base("qianxun")
         {
-            events.Add(TriggerEvent.TargetConfirming);
+            events = new List<TriggerEvent> { TriggerEvent.TargetConfirming, TriggerEvent.CardsMoveOneTime };
             frequency = Frequency.Compulsory;
             skill_type = SkillType.Defense;
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null
-                && (use.Card.Name == "Snatch" || use.Card.Name == "Indulgence") && use.To.Contains(player))
+            if (triggerEvent == TriggerEvent.TargetConfirming && base.Triggerable(player, room) && data is CardUseStruct use && use.Card != null
+                && (use.Card.Name == Snatch.ClassName || use.Card.Name == Indulgence.ClassName) && use.To.Contains(player))
+            {
                 return new TriggerStruct(Name, player);
-
+            }
+            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.To != null && move.To_place == Place.PlaceDelayedTrick
+                && base.Triggerable(move.To, room) && move.Reason.Reason == MoveReason.S_REASON_TRANSFER)
+            {
+                WrappedCard card = move.Reason.Card;
+                if (card.Name == Indulgence.ClassName && room.GetCardPlace(move.Card_ids[0]) == Place.PlaceDelayedTrick)
+                {
+                    return new TriggerStruct(Name, move.To);
+                }
+            }
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            bool invoke = RoomLogic.PlayerHasShownSkill(room, player, Name) || room.AskForSkillInvoke(player, Name, null, info.SkillPosition);
+            bool invoke = RoomLogic.PlayerHasShownSkill(room, ask_who, Name) || room.AskForSkillInvoke(ask_who, Name, data, info.SkillPosition);
             if (invoke)
             {
-                room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
-
+                room.BroadcastSkillInvoke(Name, ask_who, info.SkillPosition);
                 return info;
             }
             return new TriggerStruct();
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            room.SendCompulsoryTriggerLog(player, Name);
-            CardUseStruct use = (CardUseStruct)data;
-            room.CancelTarget(ref use, player); // Room::cancelTarget(use, player);
-            data = use;
+            room.SendCompulsoryTriggerLog(ask_who, Name);
+            if (triggerEvent == TriggerEvent.TargetConfirming && data is CardUseStruct use)
+            {
+                room.CancelTarget(ref use, player); // Room::cancelTarget(use, player);
+                data = use;
+                return true;
+            }
+            else if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && room.GetCardPlace(move.Card_ids[0]) == Place.PlaceDelayedTrick)
+            {
+                room.SetEmotion(ask_who, "cancel");
+                Thread.Sleep(400);
+
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_NATURAL_ENTER, string.Empty)
+                {
+                    Card = move.Reason.Card
+                };
+                /*
+                room.MoveCardTo(room.GetCard(move.Card_ids[0]), move.To, null, Place.PlaceTable, reason);
+                if (room.GetCardPlace(move.Card_ids[0]) == Place.PlaceTable)
+                    room.MoveCardTo(room.GetCard(move.Card_ids[0]), null, null, Place.DiscardPile, reason);
+                    */
+                CardsMoveStruct move2 = new CardsMoveStruct(move.Card_ids, null, Place.DiscardPile, reason);
+                room.MoveCardsAtomic(move2, true);
+            }
+
             return false;
         }
     }
@@ -5870,13 +6318,10 @@ namespace SanguoshaServer.Game
             filter_pattern = ".|red|.|hand";
             response_or_use = true;
         }
-        public override bool IsEnabledAtPlay(Room room, Player player)
-        {
-            return player.UsedTimes("ViewAsSkill_duoshiCard") < 4;
-        }
+        public override bool IsEnabledAtPlay(Room room, Player player) => player.UsedTimes("ViewAsSkill_duoshiCard") < 4;
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard await = new WrappedCard("AwaitExhausted");
+            WrappedCard await = new WrappedCard(AwaitExhausted.ClassName);
             await.AddSubCard(card);
             await.Skill = Name;
             await.ShowSkill = Name;
@@ -5932,10 +6377,12 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, List<WrappedCard> cards, Player player)
         {
-            WrappedCard jieyin_card = new WrappedCard("JieyinCard");
+            WrappedCard jieyin_card = new WrappedCard("JieyinCard")
+            {
+                Skill = Name,
+                ShowSkill = Name
+            };
             jieyin_card.AddSubCards(cards);
-            jieyin_card.Skill = Name;
-            jieyin_card.ShowSkill = Name;
             return jieyin_card;
         }
     }
@@ -5987,6 +6434,7 @@ namespace SanguoshaServer.Game
             Player to = room.AskForPlayerChosen(player, room.GetOtherPlayers(player), Name, "yinghun-invoke", true, true, info.SkillPosition);
             if (to != null)
             {
+                room.DoAnimate(AnimateType.S_ANIMATE_INDICATE, player.Name, to.Name);
                 player.SetTag("yinghun_target", to.Name);
                 return info;
             }
@@ -5999,7 +6447,7 @@ namespace SanguoshaServer.Game
             {
                 int x = sunjian.GetLostHp();
 
-                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, sunjian, info.SkillPosition);
+                GeneralSkin gsk = RoomLogic.GetGeneralSkin(room, sunjian, Name, info.SkillPosition);
                 if (x == 1)
                 {
                     room.BroadcastSkillInvoke(Name, "male", 1, gsk.General, gsk.SkinId);
@@ -6009,8 +6457,8 @@ namespace SanguoshaServer.Game
                 else
                 {
                     to.SetFlags("YinghunTarget");
-                    List<string> descriptions = new List<string> { "#yinghun::" + to.Name, " @d1tx:::" + x.ToString(), "@dxt1:::" + x.ToString() };
-                    string choice = room.AskForChoice(sunjian, "yinghun",  "d1tx+dxt1", descriptions);
+                    List<string> descriptions = new List<string> { "@to-player:" + to.Name, "@d1tx:::" + x.ToString(), "@dxt1:::" + x.ToString() };
+                    string choice = room.AskForChoice(sunjian, Name,  "d1tx+dxt1", descriptions);
                     to.SetFlags("-YinghunTarget");
                     if (choice.Contains("d1tx"))
                     {
@@ -6033,22 +6481,29 @@ namespace SanguoshaServer.Game
     }
     public class TianxiangCard : SkillCard
     {
-        public TianxiangCard() : base("TianxiangCard") { }
+        public static string ClassName = "TianxiangCard";
+        public TianxiangCard() : base(ClassName)
+        {
+        }
         public override bool TargetsFeasible(Room room, List<Player> targets, Player Self, WrappedCard card)
         {
             return card.SubCards.Count == 1 && targets.Count == 1;
         }
         public override void OnEffect(Room room, CardEffectStruct effect)
         {
-            effect.To.SetFlags("tianxiang_target");
             effect.From.SetFlags("tianxiang_invoke");
+            effect.From.SetTag("tianxiang_target", effect.To.Name);
+            effect.From.SetTag("tianxiang_card", effect.Card.GetEffectiveId());
         }
     }
     public class TianxiangViewAsSkill : OneCardViewAsSkill
     {
         public TianxiangViewAsSkill() : base("tianxiang")
         {
-            response_pattern = "@@tianxiang";
+        }
+        public override bool IsAvailable(Room room, Player invoker, CardUseReason reason, string pattern, string position = null)
+        {
+            return reason == CardUseReason.CARD_USE_REASON_RESPONSE_USE && pattern == "@@tianxiang";
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
@@ -6061,7 +6516,7 @@ namespace SanguoshaServer.Game
         {
             if (RoomLogic.IsJilei(room, player, to_select)) return false;
             string pat = ".|heart|.|hand";
-            ExpPattern pattern = new ExpPattern(pat);
+            CardPattern pattern = Engine.GetPattern(pat);
             return pattern.Match(player, room, to_select);
         }
     }
@@ -6082,12 +6537,9 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player xiaoqiao, ref object data, Player ask_who, TriggerStruct info)
         {
-            foreach (Player p in room.GetAlivePlayers())
-                p.SetFlags("-tianxiang_target");
-
             xiaoqiao.SetFlags("-tianxiang_invoke");
             room.SetTag("TianxiangDamage", data);
-            room.AskForUseCard(xiaoqiao, "@@tianxiang", "@tianxiang-card", -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
+            room.AskForUseCard(xiaoqiao, "@@tianxiang", "@tianxiang-card", null, -1, HandlingMethod.MethodDiscard, true, info.SkillPosition);
             room.RemoveTag("TianxiangDamage");
             if (xiaoqiao.HasFlag("tianxiang_invoke"))
                 return info;
@@ -6096,17 +6548,10 @@ namespace SanguoshaServer.Game
         }
         public override bool Effect(TriggerEvent triggerEvent, Room room, Player xiaoqiao, ref object data, Player ask_who, TriggerStruct info)
         {
-            xiaoqiao.SetTag(Name, info.SkillPosition);
-            Player target = null;
-            foreach (Player p in room.GetAlivePlayers()) {
-                if (p.HasFlag("tianxiang_target"))
-                {
-                    target = p;
-                    break;
-                }
-            }
+            Player target = room.FindPlayer((string)xiaoqiao.GetTag("tianxiang_target"));
+            xiaoqiao.RemoveTag("tianxiang_target");
             xiaoqiao.SetFlags("-tianxiang_invoke");
-            target.SetFlags("-tianxiang_target");
+            xiaoqiao.RemoveTag("tianxiang_card");
 
             DamageStruct damage = (DamageStruct)data;
             damage.Transfer = true;
@@ -6158,7 +6603,7 @@ namespace SanguoshaServer.Game
         {
             return base.ViewAs(room, cards, player);
         }
-        public override void ViewAs(Room room, ref WrappedCard card, Player player)
+        public override void ViewAs(Room room, ref RoomCard card, Player player)
         {
             card.Skill = Name;
             card.SetSuit(WrappedCard.CardSuit.Heart);
@@ -6195,25 +6640,28 @@ namespace SanguoshaServer.Game
             data = judge;
             return false;
         }
-        public override int GetEffectIndex(Room room, Player player, WrappedCard card) => -2;
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
+        {
+            index = -2;
+        }
     }
     public class TianyiCard : SkillCard
     {
         public TianyiCard() : base("TianyiCard") { }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
-            return targets.Count == 0 && !to_select.IsKongcheng() && to_select != Self;
+            return targets.Count == 0 && RoomLogic.CanBePindianBy(room, to_select, Self) && to_select != Self;
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
             Player target = card_use.To[0];
             PindianStruct pd = room.PindianSelect(card_use.From, target, "tianyi");
 
-            bool success = room.Pindian(pd);
-            if (success)
+            room.Pindian(ref pd);
+            if (pd.Success)
                 card_use.From.SetFlags("TianyiSuccess");
             else
-                RoomLogic.SetPlayerCardLimitation(card_use.From, "use", "Slash", true);
+                RoomLogic.SetPlayerCardLimitation(card_use.From, "tianyi", "use", Slash.ClassName, true);
         }
     }
     public class TianyiVS : ZeroCardViewAsSkill
@@ -6273,7 +6721,7 @@ namespace SanguoshaServer.Game
             if (targets.Count > 0)
             {
                 room.SetTag("extra_target_skill", data);                   //for AI
-                Player target = room.AskForPlayerChosen(player, targets, Name, "@extra_targets1:Slash", true, false, info.SkillPosition);
+                Player target = room.AskForPlayerChosen(player, targets, Name, string.Format("@extra_targets1:::{0}:{1}", use.Card.Name, 1), true, false, info.SkillPosition);
                 room.RemoveTag("extra_target_skill");
                 if (target != null)
                 {
@@ -6316,7 +6764,7 @@ namespace SanguoshaServer.Game
 
     public class TianyiTargetMod : TargetModSkill
     {
-        public TianyiTargetMod() : base("#tianyi-target")
+        public TianyiTargetMod() : base("#tianyi-target", false)
         {
         }
         public override int GetResidueNum(Room room, Player from, WrappedCard card)
@@ -6326,23 +6774,14 @@ namespace SanguoshaServer.Game
             else
                 return 0;
         }
-        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card)
+        public override bool GetDistanceLimit(Room room, Player from, Player to, WrappedCard card, CardUseReason reason, string pattern)
         {
-            if (from.HasFlag("TianyiSuccess"))
-                return true;
-
-            return false;
+            return from.HasFlag("TianyiSuccess") ? true : false;
         }
-        /*
-        public override int GetExtraTargetNum(Room room, Player from, WrappedCard card)
+        public override void GetEffectIndex(Room room, Player player, WrappedCard card, ref int index, ref string skill_name, ref string general_name, ref int skin_id)
         {
-            if (from.HasFlag("TianyiSuccess"))
-                return 1;
-            else
-                return 0;
+            index = 1;
         }
-        */
-        public override int GetEffectIndex(Room rom, Player player, WrappedCard card, ModType type) => 1;
     }
     public class Buqu : TriggerSkill
     {
@@ -6354,10 +6793,9 @@ namespace SanguoshaServer.Game
         }
         public override TriggerStruct Triggerable(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who)
         {
-            if (base.Triggerable(player, room) && player.Hp <= 0)
-            {
+            if (data is DyingStruct dying && dying.Who == player && base.Triggerable(player, room) && player.Hp <= 0)
                 return new TriggerStruct(Name, player);
-            }
+
             return new TriggerStruct();
         }
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
@@ -6390,7 +6828,7 @@ namespace SanguoshaServer.Game
                         From = player.Name
                     };
                     List<string> number_string = new List<string> { "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K" };
-                    log.Arg = number_string[num];
+                    log.Arg = number_string[num - 1];
                     room.SendLog(log);
 
                     log = new LogMessage
@@ -6405,7 +6843,7 @@ namespace SanguoshaServer.Game
             }
             if (duplicate)
             {
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_REMOVE_FROM_PILE, null, Name, null);
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_REMOVE_FROM_PILE, null, Name, null);
                 List<int> ints = new List<int> { id };
                 room.ThrowCard(ref ints, reason, null);
                 Thread.Sleep(1000);
@@ -6414,7 +6852,8 @@ namespace SanguoshaServer.Game
             {
                 RecoverStruct recover = new RecoverStruct
                 {
-                    Recover = 1 - player.Hp
+                    Recover = 1 - player.Hp,
+                    Who = player,
                 };
                 room.Recover(player, recover, true);
             }
@@ -6470,10 +6909,10 @@ namespace SanguoshaServer.Game
     }
     public class HaoshiCard : SkillCard
     {
-        public HaoshiCard() : base("HaoshiCard")
+        public static string ClassName = "HaoshiCard";
+        public HaoshiCard() : base(ClassName)
         {
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -6484,8 +6923,13 @@ namespace SanguoshaServer.Game
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
-            CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, card_use.From.Name,
+            CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, card_use.From.Name,
                 card_use.To[0].Name, "haoshi", null);
+
+            ResultStruct result = card_use.From.Result;
+            result.Assist += card_use.Card.SubCards.Count;
+            card_use.From.Result = result;
+
             room.MoveCardTo(card_use.Card, card_use.To[0], Place.PlaceHand, reason);
         }
     }
@@ -6511,10 +6955,12 @@ namespace SanguoshaServer.Game
             if (cards.Count != player.HandcardNum / 2)
                 return null;
 
-            WrappedCard card = new WrappedCard("HaoshiCard");
+            WrappedCard card = new WrappedCard(HaoshiCard.ClassName)
+            {
+                Skill = "_haoshi",
+                Mute = true
+            };
             card.AddSubCards(cards);
-            card.Skill = "_haoshi";
-            card.Mute = true;
             return card;
         }
     }
@@ -6528,7 +6974,7 @@ namespace SanguoshaServer.Game
         public override bool CanPreShow() => true;
         public override TriggerStruct Cost(TriggerEvent triggerEvent, Room room, Player player, ref object data, Player ask_who, TriggerStruct info)
         {
-            if (room.AskForSkillInvoke(player, Name, null, info.SkillPosition))
+            if (room.AskForSkillInvoke(player, Name, data, info.SkillPosition))
             {
                 room.BroadcastSkillInvoke(Name, player, info.SkillPosition);
                 player.SetTag(Name, info.SkillPosition);
@@ -6577,7 +7023,7 @@ namespace SanguoshaServer.Game
                 least = Math.Min(player.HandcardNum, least);
             lusu.SetMark("haoshi", least);
 
-            if (room.AskForUseCard(lusu, "@@haoshi!", "@haoshi", -1, HandlingMethod.MethodUse, true, info.SkillPosition) == null)
+            if (room.AskForUseCard(lusu, "@@haoshi!", "@haoshi", null, -1, HandlingMethod.MethodUse, true, info.SkillPosition) == null)
             {
                 // force lusu to give his half cards
                 Player beggar = null;
@@ -6591,11 +7037,15 @@ namespace SanguoshaServer.Game
                 }
 
                 int n = lusu.HandcardNum / 2;
-                List<int> to_give = new List<int>();
+                List<int> to_give = new List<int>(), hands = lusu.GetCards("h");
                 for (int i = 0; i < n; i++)
-                    to_give.Add(lusu.HandCards[i]);
+                    to_give.Add(hands[i]);
 
-                CardMoveReason reason = new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GIVE, lusu.Name, lusu.Name, "haoshi", null);
+                ResultStruct result = lusu.Result;
+                result.Assist += to_give.Count;
+                lusu.Result = result;
+
+                CardMoveReason reason = new CardMoveReason(MoveReason.S_REASON_GIVE, lusu.Name, lusu.Name, "haoshi", null);
                 CardsMoveStruct move = new CardsMoveStruct(to_give, beggar, Place.PlaceHand, reason);
                 List<CardsMoveStruct> moves = new List<CardsMoveStruct> { move };
                 room.MoveCardsAtomic(moves, false);
@@ -6638,10 +7088,14 @@ namespace SanguoshaServer.Game
             int n1 = a.HandcardNum;
             int n2 = b.HandcardNum;
 
-            CardsMoveStruct move1 = new CardsMoveStruct(new List<int>(a.HandCards), b, Place.PlaceHand,
-                new CardMoveReason(CardMoveReason.MoveReason.S_REASON_SWAP, a.Name, b.Name, "dimeng", null));
-            CardsMoveStruct move2 = new CardsMoveStruct(new List<int>(b.HandCards), a, Place.PlaceHand,
-                new CardMoveReason(CardMoveReason.MoveReason.S_REASON_SWAP, b.Name, a.Name, "dimeng", null));
+            ResultStruct result = card_use.From.Result;
+            result.Assist += Math.Abs(n1 - n2);
+            card_use.From.Result = result;
+
+            CardsMoveStruct move1 = new CardsMoveStruct(a.GetCards("h"), b, Place.PlaceHand,
+                new CardMoveReason(MoveReason.S_REASON_SWAP, a.Name, b.Name, "dimeng", null));
+            CardsMoveStruct move2 = new CardsMoveStruct(b.GetCards("h"), a, Place.PlaceHand,
+                new CardMoveReason(MoveReason.S_REASON_SWAP, b.Name, a.Name, "dimeng", null));
             List<CardsMoveStruct> exchangeMove = new List<CardsMoveStruct> { move1, move2 };
             room.MoveCards(exchangeMove, false);
 
@@ -6672,10 +7126,12 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, List<WrappedCard> cards, Player player)
         {
-            WrappedCard card = new WrappedCard("DimengCard");
+            WrappedCard card = new WrappedCard("DimengCard")
+            {
+                Skill = Name,
+                ShowSkill = Name
+            };
             card.AddSubCards(cards);
-            card.Skill = Name;
-            card.ShowSkill = Name;
             return card;
         }
         public override bool IsEnabledAtPlay(Room room, Player player)
@@ -6688,7 +7144,6 @@ namespace SanguoshaServer.Game
         public ZhijianCard() : base("ZhijianCard")
         {
             will_throw = false;
-            handling_method = HandlingMethod.MethodNone;
         }
         public override bool TargetFilter(Room room, List<Player> targets, Player to_select, Player Self, WrappedCard card)
         {
@@ -6702,8 +7157,12 @@ namespace SanguoshaServer.Game
         }
         public override void Use(Room room, CardUseStruct card_use)
         {
+            ResultStruct result = card_use.From.Result;
+            result.Assist++;
+            card_use.From.Result = result;
+
             room.MoveCardTo(card_use.Card, card_use.From, card_use.To[0], Place.PlaceEquip,
-                new CardMoveReason(CardMoveReason.MoveReason.S_REASON_PUT, card_use.From.Name, "zhijian", null));
+                new CardMoveReason(MoveReason.S_REASON_PUT, card_use.From.Name, "zhijian", null));
 
             LogMessage log = new LogMessage
             {
@@ -6745,7 +7204,7 @@ namespace SanguoshaServer.Game
         public override void Record(TriggerEvent triggerEvent, Room room, Player player, ref object data)
         {
             if (triggerEvent == TriggerEvent.CardsMoveOneTime && data is CardsMoveOneTimeStruct move && move.From != null && move.From.Phase == PlayerPhase.Discard
-                && move.From == room.Current && (move.Reason.Reason & CardMoveReason.MoveReason.S_MASK_BASIC_REASON) == CardMoveReason.MoveReason.S_REASON_DISCARD)
+                && move.From == room.Current && (move.Reason.Reason & MoveReason.S_MASK_BASIC_REASON) == MoveReason.S_REASON_DISCARD)
             {
                 List<Player> erzhangs = RoomLogic.FindPlayersBySkillName(room, Name);
                 bool check = false;
@@ -6760,8 +7219,6 @@ namespace SanguoshaServer.Game
                 if (!check) return;
 
                 List<int> guzhengToGet = move.From.ContainsTag("GuzhengToGet") ? (List<int>)move.From.GetTag("GuzhengToGet") : new List<int>();
-
-
                 foreach (int card_id in move.Card_ids)
                 {
                     if (!guzhengToGet.Contains(card_id))
@@ -6802,10 +7259,14 @@ namespace SanguoshaServer.Game
             if (cards.Count > 0)
             {
                 List<int> result = room.NotifyChooseCards(erzhang, cards, Name, 1, 0, "@guzheng:" + player.Name, null, info.SkillPosition);
-
                 if (result.Count > 0)
                 {
+                    ResultStruct assit = erzhang.Result;
+                    assit.Assist++;
+                    erzhang.Result = assit;
+
                     room.BroadcastSkillInvoke(Name, erzhang, info.SkillPosition);
+                    room.NotifySkillInvoked(erzhang, Name);
                     int to_back = result[0];
                     room.ObtainCard(player, room.GetCard(to_back));
                     cards.Remove(to_back);
@@ -6820,7 +7281,7 @@ namespace SanguoshaServer.Game
             List<int> cards = (List<int>)player.GetTag("GuzhengCards");
             player.RemoveTag("GuzhengCards");
             if (cards.Count > 0 && room.AskForSkillInvoke(player, Name, "#GuzhengObtain", info.SkillPosition))
-                room.ObtainCard(player, cards, new CardMoveReason(CardMoveReason.MoveReason.S_REASON_GOTBACK, player.Name));
+                room.ObtainCard(player, ref cards, new CardMoveReason(MoveReason.S_REASON_GOTBACK, player.Name));
 
             return false;
         }
@@ -6878,7 +7339,7 @@ namespace SanguoshaServer.Game
             if (targets.Count > 0)
             {
                 room.SetTag("extra_target_skill", data);                   //for AI
-                Player target = room.AskForPlayerChosen(player, targets, Name, "@extra_targets1:Slash", true, false, info.SkillPosition);
+                Player target = room.AskForPlayerChosen(player, targets, Name, string.Format("@duanbing-target:::{0}", use.Card.Name), true, false, info.SkillPosition);
                 room.RemoveTag("extra_target_skill");
                 if (target != null)
                 {
@@ -6932,6 +7393,7 @@ namespace SanguoshaServer.Game
             effect.To.SetFlags("FenxunTarget");
         }
     }
+
     public class Fenxun : OneCardViewAsSkill
     {
         public Fenxun() : base("fenxun")
@@ -6944,10 +7406,12 @@ namespace SanguoshaServer.Game
         }
         public override WrappedCard ViewAs(Room room, WrappedCard card, Player player)
         {
-            WrappedCard first = new WrappedCard("FenxunCard");
+            WrappedCard first = new WrappedCard("FenxunCard")
+            {
+                Skill = Name,
+                ShowSkill = Name
+            };
             first.AddSubCard(card);
-            first.Skill = Name;
-            first.ShowSkill = Name;
             return first;
         }
     }

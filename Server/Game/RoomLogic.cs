@@ -1,15 +1,15 @@
 ﻿using CommonClass.Game;
+using SanguoshaServer.Package;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using static CommonClass.Game.Player;
 using static CommonClass.Game.WrappedCard;
-using static SanguoshaServer.Game.EquipCard;
-using static SanguoshaServer.Game.FunctionCard;
+using static SanguoshaServer.Package.EquipCard;
+using static SanguoshaServer.Package.FunctionCard;
 
 namespace SanguoshaServer.Game
 {
@@ -34,7 +34,7 @@ namespace SanguoshaServer.Game
             if (other == slasher || !other.Alive)
                 return false;
 
-            slash = slash ?? new WrappedCard("Slash");
+            slash = slash ?? new WrappedCard(Slash.ClassName);
 
             if (IsProhibited(room, slasher, other, slash, others) != null) return false;
 
@@ -52,7 +52,7 @@ namespace SanguoshaServer.Game
 
         public static bool CanSlashWithoutCrossBow(Room room, Player player, WrappedCard slash = null)
         {
-            WrappedCard newslash = slash ?? new WrappedCard("Slash");
+            WrappedCard newslash = slash ?? new WrappedCard(Slash.ClassName);
             int slash_count = player.GetSlashCount();
             int valid_slash_count = 1;
             valid_slash_count += Engine.CorrectCardTarget(room, TargetModSkill.ModType.Residue, player, newslash);
@@ -91,9 +91,8 @@ namespace SanguoshaServer.Game
         {
             if (DistanceTo(room, from, other, card) == -1)
                 return false;
-            List<string> in_attack_range_players = from.ContainsTag("in_my_attack_range") ? (List<string>)from.GetTag("in_my_attack_range") : new List<string>();
-            if (in_attack_range_players.Contains(other.Name)) // for DIY Skills
-                return true;
+
+            if (Engine.CorrectCardTarget(room, TargetModSkill.ModType.AttackRange, from, other, card)) return true;
 
             bool inclue_weapon = from.Weapon.Key != -1;
             if (card != null && inclue_weapon && card.SubCards.Contains(from.Weapon.Key))
@@ -109,23 +108,31 @@ namespace SanguoshaServer.Game
             Player next_p = from;
             while (next_p != other)
             {
-                next_p = room.GetNextAlive(next_p);
+                next_p = room.GetNextAlive(next_p, 1, false);
                 right++;
             }
             return right;
         }
 
-        public static int DistanceTo(Room room, Player from, Player other, WrappedCard card = null, bool ignore_remove = false)
+        public static int DistanceTo(Room room, Player from, Player other, WrappedCard card = null, bool include_remove = false)
         {
             if (from == other || !from.Alive || !other.Alive) return 0;
 
-            if (!ignore_remove && (from.Removed || other.Removed)) return -1;
+            if (!include_remove && (from.Removed || other.Removed)) return -1;
 
             int distance_fixed = Engine.GetFixedDistance(room, from, other);
             if (distance_fixed > 0) return distance_fixed;
+            
+            int right = 0;
+            Player next_p = from;
+            while (next_p != other)
+            {
+                next_p = room.GetNextAlive(next_p, 1, !include_remove);
+                right++;
+            }
 
-            int right = OriginalRightDistance(room, from, other);
-            int left = room.AliveCount(false) - right;
+            int left = room.AliveCount(include_remove) - right;
+
             int distance = Math.Min(left, right);
 
             distance += Engine.CorrectDistance(room, from, other, card);
@@ -140,7 +147,7 @@ namespace SanguoshaServer.Game
         public static string CardToString(Room room, WrappedCard card)
         {
             bool modified = false;
-            if (!IsVirtualCard(room, card))
+            if (!card.IsVirtualCard())
             {
                 WrappedCard origin = Engine.GetRealCard(card.Id);
                 if (origin.Equals(card))
@@ -150,7 +157,7 @@ namespace SanguoshaServer.Game
             }
 
             StringBuilder str = new StringBuilder(string.Format("{0}:{1}[{2}:{3}]={4}&{5}:{6}${7}%{8};{9}", card.Name, card.Skill,
-                GetSuitString(GetCardSuit(room, card)), GetNumberString(GetCardNumber(room, card)), card.SubcardString(),
+                GetSuitString(card.Suit), GetNumberString(card.Number), card.SubcardString(),
                 card.ShowSkill, card.ExtraTarget.ToString(), card.DistanceLimited.ToString(), card.SkillPosition, card.UserString));
 
             if (card.Mute) str.Append("*");
@@ -159,7 +166,7 @@ namespace SanguoshaServer.Game
 
             return str.ToString();
         }
-
+        /*
         public static bool IsVirtualCard(Room room, WrappedCard card)
         {
             if (card.Id < 0)
@@ -170,10 +177,10 @@ namespace SanguoshaServer.Game
                 return ori_card != card;
             }
         }
-
+        */
         public static WrappedCard ParseUseCard(Room room, WrappedCard card)
         {
-            if (!IsVirtualCard(room, card))
+            if (!card.IsVirtualCard())
             {
                 return card;
             }
@@ -193,7 +200,8 @@ namespace SanguoshaServer.Game
                     Skill = card.Skill,
                     ShowSkill = card.ShowSkill,
                     SkillPosition = card.SkillPosition,
-                    UserString = card.UserString
+                    UserString = card.UserString,
+                    Cancelable = card.Cancelable
                 };
                 new_card.AddSubCards(card.SubCards);
 
@@ -258,7 +266,7 @@ namespace SanguoshaServer.Game
 
         public static int GetCardNumber(Room room, WrappedCard card)
         {
-            if (Engine.GetFunctionCard(card.Name)?.IsKindOf("SkillCard") == true)
+            if (Engine.GetFunctionCard(card.Name) is SkillCard)
                 return 0;
             else
             {
@@ -268,7 +276,7 @@ namespace SanguoshaServer.Game
 
         public static CardSuit GetCardSuit(Room room, WrappedCard card)
         {
-            if (IsVirtualCard(room, card))
+            if (card.IsVirtualCard())
             {
                 if (Engine.GetFunctionCard(card.Name) is SkillCard)
                     return CardSuit.NoSuit;
@@ -346,9 +354,9 @@ namespace SanguoshaServer.Game
             return room.Scenario.IsFriendWith(room, player, other);
         }
 
-        public static bool WillBeFriendWith(Room room, Player player, Player other)
+        public static bool WillBeFriendWith(Room room, Player player, Player other, string show_skill = null)
         {
-            return room.Scenario.WillBeFriendWith(room, player, other);
+            return room.Scenario.WillBeFriendWith(room, player, other, show_skill);
         }
 
         public static bool PlayerHasSkill(Room room, Player player, string skill_name, bool include_lose = false)
@@ -367,11 +375,14 @@ namespace SanguoshaServer.Game
                     return PlayerHasSkill(room, player, main_skill.Name);
             }
 
+            if (Engine.Invalid(room, player, skill_name) != null) return false;
+            if (player.ContainsTag("huashen_skill") && player.GetTag("huashen_skill") is string huashen && skill_name == huashen)
+                return PlayerHasSkill(room, player, "huashen", include_lose);
 
             if ((player.HeadSkills.ContainsKey(skill_name) && (player.General1Showed || (player.HeadSkills[skill_name] && player.CanShowGeneral("h"))))
                     || (player.DeputySkills.ContainsKey(skill_name) && (player.General2Showed || (player.DeputySkills[skill_name] && player.CanShowGeneral("d"))))
                     || player.HeadAcquiredSkills.Contains(skill_name) || player.DeputyAcquiredSkills.Contains(skill_name))
-                return Engine.Invalid(room, player, skill_name) == null;
+                return true;
 
             if (Engine.ViewHas(room, player, skill_name, "skill").Count > 0) return true;
 
@@ -388,11 +399,34 @@ namespace SanguoshaServer.Game
 
         public static bool PlayerHasShownSkill(Room room, Player player, string skill)
         {
-            return PlayerHasShownSkill(room, player, Engine.GetSkill(skill));
+            bool check = true;
+            foreach (string str in skill.Split('+'))
+            {
+                bool _check = false;
+                foreach (string _str in str.Split('|'))
+                {
+                    if (PlayerHasShownSkill(room, player, Engine.GetSkill(_str)))
+                    {
+                        _check = true;
+                        break;
+                    }
+                }
+
+                if (!_check)
+                {
+                    check = false;
+                    break;
+                }
+            }
+
+            return check;
         }
         public static bool PlayerHasShownSkill(Room room, Player player, Skill skill)
         {
             if (skill == null) return false;
+
+            if (player.ContainsTag("huashen_skill") && player.GetTag("huashen_skill") is string huashen && skill.Name == huashen)
+                return Engine.Invalid(room, player, skill.Name) == null && PlayerHasShownSkill(room, player, Engine.GetSkill("huashen"));
 
             if (player.HeadAcquiredSkills.Contains(skill.Name) || player.DeputyAcquiredSkills.Contains(skill.Name))
                 return Engine.Invalid(room, player, skill.Name) == null;
@@ -467,7 +501,7 @@ namespace SanguoshaServer.Game
         public static bool IsJilei(Room room, Player player, WrappedCard card) => IsCardLimited(room, player, card, HandlingMethod.MethodDiscard);
         public static bool IsLocked(Room room, Player player, WrappedCard card) => IsCardLimited(room, player, card, HandlingMethod.MethodUse);
 
-        public static void SetPlayerCardLimitation(Player player, string limit_list, string pattern, bool single_turn = false)
+        public static void SetPlayerCardLimitation(Player player, string reason, string limit_list, string pattern, bool single_turn = false)
         {
             List<string> limit_type = new List<string>(limit_list.Split(','));
             string _pattern = pattern;
@@ -476,32 +510,52 @@ namespace SanguoshaServer.Game
                 string symb = single_turn ? "$1" : "$0";
                 _pattern = _pattern + symb;
             }
-            Dictionary<int, List<string>> limitation = new Dictionary<int, List<string>>(player.Limitation);
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            if (!limitation.ContainsKey(reason)) limitation[reason] = new Dictionary<int, List<string>>();
             foreach (string limit in limit_type)
             {
                 HandlingMethod method = Engine.GetCardHandlingMethod(limit);
-                if (limitation.ContainsKey((int)method))
-                    limitation[(int)method].Add(_pattern);
+                if (limitation[reason].ContainsKey((int)method))
+                    limitation[reason][(int)method].Add(_pattern);
                 else
-                    limitation[(int)method] = new List<string> { _pattern };
+                    limitation[reason][(int)method] = new List<string> { _pattern };
             }
             player.Limitation = limitation;
         }
-
-        public static void RemovePlayerCardLimitation(Player player, string limit_list, string pattern)
+        public static void RemovePlayerCardLimitation(Player player, string reason)
         {
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            if (limitation.ContainsKey(reason))
+            {
+                limitation.Remove(reason);
+                player.Limitation = limitation;
+            }
+        }
+
+        public static void RemovePlayerCardLimitation(Player player, string reason, string limit_list, string pattern)
+        {
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            if (!limitation.ContainsKey(reason)) return;
+
             List<string> limit_type = new List<string>(limit_list.Split(','));
             string _pattern = pattern;
             if (!_pattern.EndsWith("$1") && !_pattern.EndsWith("$0"))
                 _pattern = _pattern + "$0";
 
-            Dictionary<int, List<string>> limitation = new Dictionary<int, List<string>>(player.Limitation);
             foreach (string limit in limit_type)
             {
                 HandlingMethod method = Engine.GetCardHandlingMethod(limit);
-                if (limitation.ContainsKey((int)method))
-                    limitation[(int)method].Remove(_pattern);
+                if (limitation[reason].ContainsKey((int)method))
+                    limitation[reason][(int)method].RemoveAll(t => t == _pattern);
             }
+            foreach (string limit in limit_type)
+            {
+                HandlingMethod method = Engine.GetCardHandlingMethod(limit);
+                int index = (int)method;
+                if (limitation[reason].ContainsKey(index) && limitation[reason][index].Count == 0)
+                    limitation[reason].Remove(index);
+            }
+            if (limitation[reason].Count == 0) limitation.Remove(reason);
             player.Limitation = limitation;
         }
 
@@ -513,18 +567,56 @@ namespace SanguoshaServer.Game
                 HandlingMethod.MethodRecast, HandlingMethod.MethodPindian
             };
 
-            Dictionary<int, List<string>> limitation = new Dictionary<int, List<string>>(player.Limitation);
-            foreach (HandlingMethod method in limit_type)
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            List<string> keys = new List<string>(limitation.Keys);
+            for (int i = 0; i < keys.Count; i++)
             {
-                if (!limitation.ContainsKey((int)method)) continue;
-                List<string> limit_patterns = new List<string>(limitation[(int)method]);
-                foreach (string pattern in limit_patterns)
+                string reason = keys[i];
+                Dictionary<int, List<string>> reason_limit = limitation[reason];
+                foreach (HandlingMethod method in limit_type)
                 {
-                    if (!single_turn || pattern.EndsWith("$1"))
-                        limitation[(int)method].Remove(pattern);
+                    if (!reason_limit.ContainsKey((int)method)) continue;
+                    List<string> limit_patterns = new List<string>(reason_limit[(int)method]);
+                    foreach (string pattern in limit_patterns)
+                    {
+                        if (!single_turn || pattern.EndsWith("$1"))
+                            reason_limit[(int)method].Remove(pattern);
+                    }
                 }
+
+                foreach (HandlingMethod method in limit_type)
+                {
+                    int index = (int)method;
+                    if (reason_limit.ContainsKey(index) && reason_limit[index].Count == 0)
+                        reason_limit.Remove(index);
+                }
+                limitation[reason] = reason_limit;
             }
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                string reason = keys[i];
+                if (limitation[reason].Count == 0) limitation.Remove(reason);
+            }
+
             player.Limitation = limitation;
+        }
+
+        public static bool IsHandCardLimited(Room room, Player player, HandlingMethod method)
+        {
+            if (method == HandlingMethod.MethodNone)
+                return false;
+
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            foreach (string reason in limitation.Keys)
+            {
+                int index = (int)method;
+                if (!limitation[reason].ContainsKey(index)) continue;
+                foreach (string pattern in limitation[reason][index])
+                    if (pattern.Contains(".|.|.|hand")) return true;
+            }
+
+            return false;
         }
 
         public static bool IsCardLimited(Room room, Player player, WrappedCard card, HandlingMethod method, bool isHandcard = false)
@@ -533,20 +625,27 @@ namespace SanguoshaServer.Game
                 return false;
 
             FunctionCard fcard = Engine.GetFunctionCard(card.Name);
-            Dictionary<int, List<string>> limitation = new Dictionary<int, List<string>>(player.Limitation);
-            if (fcard != null && fcard.TypeID == CardType.TypeSkill && method == fcard.Method)
+            Dictionary<string, Dictionary<int, List<string>>> limitation = new Dictionary<string, Dictionary<int, List<string>>>(player.Limitation);
+            if (fcard != null && fcard.TypeID == CardType.TypeSkill)
             {
-                foreach (int card_id in card.SubCards)
+                if (fcard.Method == method)
                 {
-                    if (!limitation.ContainsKey((int)method)) continue;
-                    WrappedCard c = room.GetCard(card_id);
-                    foreach (string pattern in limitation[(int)method])
+                    foreach (int card_id in card.SubCards)
                     {
-                        string _pattern = pattern.Split('$')[0];
-                        if (isHandcard)
-                            _pattern = _pattern.Replace("hand", ".");
-                        ExpPattern p = new ExpPattern(_pattern);
-                        if (p.Match(player, room, c)) return true;
+                        foreach (string reason in limitation.Keys)
+                        {
+                            int index = (int)method;
+                            if (!limitation[reason].ContainsKey(index)) continue;
+                            WrappedCard c = room.GetCard(card_id);
+                            foreach (string pattern in limitation[reason][index])
+                            {
+                                string _pattern = pattern.Split('$')[0];
+                                if (isHandcard)
+                                    _pattern = _pattern.Replace("hand", ".");
+                                CardPattern p = Engine.GetPattern(_pattern);
+                                if (p.Match(player, room, c)) return true;
+                            }
+                        }
                     }
                 }
             }
@@ -555,15 +654,20 @@ namespace SanguoshaServer.Game
                 if (player.Removed && (method == HandlingMethod.MethodResponse || method == HandlingMethod.MethodUse))
                     return true;
 
-                if (limitation.ContainsKey((int)method))
+                foreach (int card_id in card.SubCards)
                 {
-                    foreach (string pattern in limitation[(int)method])
+                    foreach (string reason in limitation.Keys)
                     {
-                        string _pattern = pattern.Split('$')[0];
-                        if (isHandcard)
-                            _pattern = _pattern.Replace("hand", ".");
-                        if (Engine.MatchExpPattern(room, _pattern, player, card))
-                            return true;
+                        int index = (int)method;
+                        if (!limitation[reason].ContainsKey(index)) continue;
+                        foreach (string pattern in limitation[reason][index])
+                        {
+                            string _pattern = pattern.Split('$')[0];
+                            if (isHandcard)
+                                _pattern = _pattern.Replace("hand", ".");
+                            if (Engine.MatchExpPattern(room, _pattern, player, card))
+                                return true;
+                        }
                     }
                 }
             }
@@ -578,14 +682,19 @@ namespace SanguoshaServer.Game
 
             if (skill != null)
             {
-                if (!string.IsNullOrEmpty(position))
+                if (player.ContainsTag("huashen_skill") && player.ContainsTag("huashen_general") && player.GetTag("huashen_skill") is string name && name == skill_name)
+                {
+                    result.General = player.GetTag("huashen_general").ToString();
+                    result.SkinId = 0;
+                }
+                else if (!string.IsNullOrEmpty(position))
                 {
                     result.General = position == "head" ? player.ActualGeneral1 : player.ActualGeneral2;
                     result.SkinId = position == "head" ? player.HeadSkinId : player.DeputySkinId;
                 }
-                else if (skill.Attached_lord_skill && GetLord(room, Engine.GetGeneral(player.ActualGeneral1).Kingdom) != null)
+                else if (skill.Attached_lord_skill && GetLord(room, Engine.GetGeneral(player.ActualGeneral1, room.Setting.GameMode).Kingdom) != null)
                 {
-                    Player lord = GetLord(room, Engine.GetGeneral(player.ActualGeneral1).Kingdom);
+                    Player lord = GetLord(room, Engine.GetGeneral(player.ActualGeneral1, room.Setting.GameMode).Kingdom);
                     result.General = lord.ActualGeneral1;
                     result.SkinId = lord.HeadSkinId;
                 }
@@ -621,7 +730,7 @@ namespace SanguoshaServer.Game
             List<Player> players = include_dead ? room.Players : room.GetAlivePlayers();
             foreach (Player p in players)
             {
-                General g = Engine.GetGeneral(p.ActualGeneral1);
+                General g = Engine.GetGeneral(p.ActualGeneral1, room.Setting.GameMode);
                 if (g.IsLord() && g.Kingdom == kingdom)
                     return p;
             }
@@ -777,22 +886,24 @@ namespace SanguoshaServer.Game
             return false;
         }
 
-        public static void RemovePlayerCard(Room room, Player player, WrappedCard card, Place place)
+        public static void RemovePlayerCard(Room room, Player player, int card_id, Place place)
         {
             switch (place)
             {
                 case Place.PlaceHand:
                     {
-                        player.HandCards.Remove(card.Id);
+                        Debug.Assert(player.HandCards.Contains(card_id));
+                        player.HandCards.Remove(card_id);
                         break;
                     }
                 case Place.PlaceEquip:
                     {
+                        WrappedCard card = room.GetCard(card_id);
                         EquipCard equip = null;
                         if (Engine.GetFunctionCard(card.Name) is EquipCard)
                             equip = (EquipCard)Engine.GetFunctionCard(card.Name);
                         else
-                            equip = (EquipCard)Engine.GetFunctionCard(Engine.GetRealCard(card.Id).Name);
+                            equip = (EquipCard)Engine.GetFunctionCard(Engine.GetRealCard(card_id).Name);
                         equip.OnUninstall(room, player, card);
                         player.RemoveEquip((int)equip.EquipLocation());
                         bool show_log = true;
@@ -806,7 +917,7 @@ namespace SanguoshaServer.Game
                         {
                             LogMessage log = new LogMessage("$Uninstall")
                             {
-                                Card_str = card.GetEffectiveId().ToString(),
+                                Card_str = card_id.ToString(),
                                 From = player.Name
                             };
                             room.SendLog(log);
@@ -815,17 +926,14 @@ namespace SanguoshaServer.Game
                     }
                 case Place.PlaceDelayedTrick:
                     {
-                        player.RemoveDelayedTrick(card);
+                        player.JudgingArea.Remove(card_id);
                         break;
                     }
                 case Place.PlaceSpecial:
                     {
-                        int card_id = card.GetEffectiveId();
                         string pile_name = player.GetPileName(card_id);
-
-                        //@todo: sanity check required
-                        if (!string.IsNullOrEmpty(pile_name))
-                            player.Piles[pile_name].Remove(card_id);
+                        Debug.Assert(!string.IsNullOrEmpty(pile_name));
+                        player.PileChange(pile_name, new List<int> { card_id }, false);
 
                         break;
                     }
@@ -834,26 +942,27 @@ namespace SanguoshaServer.Game
             }
         }
 
-        public static void AddPlayerCard(Room room, Player player, WrappedCard card, Place place)
+        public static void AddPlayerCard(Room room, Player player, int card_id, Place place)
         {
             switch (place)
             {
                 case Place.PlaceHand:
                     {
-                        player.HandCards.Add(card.Id);
+                        Debug.Assert(!player.HandCards.Contains(card_id));
+                        player.HandCards.Add(card_id);
                         break;
                     }
                 case Place.PlaceEquip:
                     {
-                        WrappedCard wrapped = room.GetCard(card.Id);
-                        EquipCard equip = (EquipCard)Engine.GetFunctionCard(card.Name);
+                        WrappedCard wrapped = room.GetCard(card_id);
+                        EquipCard equip = (EquipCard)Engine.GetFunctionCard(wrapped.Name);
                         player.SetEquip(wrapped, (int)equip.EquipLocation());
                         equip.OnInstall(room, player, wrapped);
                         break;
                     }
                 case Place.PlaceDelayedTrick:
                     {
-                        player.AddDelayedTrick(card);
+                        player.JudgingArea.Add(card_id);
                         break;
                     }
                 default:
@@ -885,7 +994,7 @@ namespace SanguoshaServer.Game
         public static List<WrappedCard> GetPlayerHandcards(Room room, Player player)
         {
             List<WrappedCard> cards = new List<WrappedCard>();
-            foreach (int id in player.HandCards)
+            foreach (int id in player.GetCards("h"))
                 cards.Add(room.GetCard(id));
             return cards;
         }
@@ -930,7 +1039,7 @@ namespace SanguoshaServer.Game
             foreach (string skill_name in room.Skills)
             {
                 ViewAsSkill vsskill = Engine.GetViewAsSkill(skill_name);
-                if (vsskill != null && vsskill.IsAvailable(room, player, CardUseStruct.CardUseReason.CARD_USE_REASON_RESPONSE_USE, "Nullification")) return true;
+                if (vsskill != null && vsskill.IsAvailable(room, player, CardUseStruct.CardUseReason.CARD_USE_REASON_RESPONSE_USE, Nullification.ClassName)) return true;
             }
 
             return false;
@@ -1041,7 +1150,7 @@ namespace SanguoshaServer.Game
             {
                 if (!p.HasShownOneGeneral())
                     continue;
-                if (p.Role == "careerist")
+                if (p.GetRoleEnum() == PlayerRole.Careerist)
                 {
                     kingdom_map["careerist"] = 1;
                     continue;
@@ -1073,7 +1182,7 @@ namespace SanguoshaServer.Game
             Player jade_seal_owner = null;
             foreach (Player p in players)
             {
-                if (p.HasTreasure("JadeSeal") && p.HasShownOneGeneral())
+                if (HasTreasureEffect(room, p, JadeSeal.ClassName) && p.HasShownOneGeneral())
                 {
                     jade_seal_owner = p;
                     break;
@@ -1081,7 +1190,7 @@ namespace SanguoshaServer.Game
             }
             if (jade_seal_owner != null)
             {
-                if (jade_seal_owner.Role == "careerist")
+                if (jade_seal_owner.GetRoleEnum() == PlayerRole.Careerist)
                 {
                     big_kingdoms.Clear();
                     big_kingdoms.Add(jade_seal_owner.Name); // record player's objectName who has JadeSeal.
@@ -1105,19 +1214,21 @@ namespace SanguoshaServer.Game
             }
             else
             {
-                if (HasArmorEffect(room, target, "IronArmor"))
-                {
-                    List<string> big_kingdoms = GetBigKingdoms(room);
-                    if (big_kingdoms.Count > 0)
-                    {
-                        string kingdom = (target.HasShownOneGeneral() ? (target.Role == "careerist" ? target.Name : target.Kingdom) : string.Empty);
-                        if (!big_kingdoms.Contains(kingdom))
-                            return false;
-                    }
-                }
+                if (Engine.IsProhibited(room, _source, target, ProhibitSkill.ProhibitType.Chain) != null)
+                    return false;
+
                 return true;
             }
         }
+
+        public static bool CanBePindianBy(Room room, Player target, Player _source)
+        {
+            if (target.IsKongcheng() || Engine.IsProhibited(room, _source, target, ProhibitSkill.ProhibitType.Pindian) != null)
+                return false;
+
+            return true;
+        }
+
         public static bool HasShownArmorEffect(Room room, Player player)
         {
             if ((player.ContainsTag("Qinggang") && ((List<string>)player.GetTag("Qinggang")).Count > 0) || player.GetMark("Armor_Nullified") > 0
@@ -1145,9 +1256,15 @@ namespace SanguoshaServer.Game
             if (include_viewhas && Engine.ViewHas(room, player, armor_name, "armor").Count > 0)
                 return true;
 
-            if (!player.GetArmor()) return false;
-            if (player.Armor.Value == armor_name) return true;
-            return false;
+            return player.HasArmor(armor_name);
+        }
+
+        public static bool HasTreasureEffect(Room room, Player player, string treasure_name, bool include_viewhas = true)
+        {
+            if (include_viewhas && Engine.ViewHas(room, player, treasure_name, "treasure").Count > 0)
+                return true;
+
+            return player.HasTreasure(treasure_name);
         }
 
         public static int GetPlayerNumWithSameKingdom(Room room, Player player, string to_calculate = null)
@@ -1156,7 +1273,7 @@ namespace SanguoshaServer.Game
             {
                 if (!player.HasShownOneGeneral())
                     return 0;
-                else if (player.Role == "careerist")
+                else if (player.GetRoleEnum() == Player.PlayerRole.Careerist)
                     return 1;
                 else
                     to_calculate = player.Kingdom;
@@ -1168,13 +1285,13 @@ namespace SanguoshaServer.Game
             if (to_calculate == "careerist")
             {
                 foreach (Player p in players)
-                    if (p.Role == "careerist")
+                    if (p.GetRoleEnum() == Player.PlayerRole.Careerist)
                     return 1;
             }
             else
             {
                 foreach (Player p in players) {
-                    if (!p.HasShownOneGeneral() || p.Role == "careerist" || p.Kingdom != to_calculate)
+                    if (!p.HasShownOneGeneral() || p.GetRoleEnum() == Player.PlayerRole.Careerist || p.Kingdom != to_calculate)
                         continue;
 
                     num++;
