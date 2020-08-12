@@ -68,6 +68,9 @@ namespace SanguoshaServer.Game
 
         private void InitGameData()
         {
+            //检查并创建gamedata文件夹
+            CheckGamedata();
+
             //读取翻译
             LoadTranslations();
             //读取武将转换列表
@@ -88,6 +91,12 @@ namespace SanguoshaServer.Game
             LoadAIValues();
 
             LoatOthers();
+        }
+
+        private void CheckGamedata()
+        {
+            if (!Directory.Exists("gamedata"))
+                Directory.CreateDirectory("gamedata");
         }
 
         private void LoadScenario()
