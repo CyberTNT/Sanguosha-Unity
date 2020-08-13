@@ -2189,11 +2189,10 @@ namespace SanguoshaServer.Package
             List<string> patterns = new List<string> { "spade", "heart", "club", "diamond" };
             foreach (int id in player.GetPile("&ring"))
                 patterns.Remove(WrappedCard.GetSuitString(room.GetCard(id).Suit));
-
             foreach (WrappedCard card in selected)
                 patterns.Remove(WrappedCard.GetSuitString(card.Suit));
 
-            return selected.Count < 4 - player.GetPile("&ring").Count && patterns.Contains(WrappedCard.GetSuitString(to_select.Suit));
+            return selected.Count < 4 - player.GetPile("&ring").Count && patterns.Contains(WrappedCard.GetSuitString(to_select.Suit)) && !player.HasEquip(to_select.Name);
         }
 
         public override WrappedCard ViewAs(Room room, List<WrappedCard> cards, Player player)
