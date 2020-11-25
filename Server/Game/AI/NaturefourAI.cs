@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Policy;
 using CommonClass;
 using CommonClass.Game;
 using SanguoshaServer.Game;
@@ -1254,9 +1255,13 @@ namespace SanguoshaServer.AI
                             break;
                         }
                     }
-                    bool friendly = strs[2] == "no";
-                    if (ai.GetPlayerTendency(target) != "unknown")
-                        ai.UpdatePlayerRelation(player, target, friendly);
+
+                    if (target != null)
+                    {
+                        bool friendly = strs[2] == "no";
+                        if (ai.GetPlayerTendency(target) != "unknown")
+                            ai.UpdatePlayerRelation(player, target, friendly);
+                    }
                 }
             }
         }
@@ -1264,11 +1269,9 @@ namespace SanguoshaServer.AI
         public override bool OnSkillInvoke(TrustedAI ai, Player player, object data)
         {
             if (data is Player target)
-            {
                 return !ai.IsFriend(target);
-            }
 
-            return false;
+            return true;
         }
     }
 

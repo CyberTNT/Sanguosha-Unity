@@ -199,7 +199,8 @@ namespace SanguoshaServer.Package
                 Drank = card_effect.Drank,
                 ExDamage = card_effect.ExDamage + card_effect.BasicEffect.Effect1,
                 Nullified = card_effect.BasicEffect.Nullified,
-                Jink_num = card_effect.BasicEffect.Effect2
+                Jink_num = card_effect.BasicEffect.Effect2,
+                RespondPattern = card_effect.BasicEffect.RespondPattern
             };
             
 
@@ -541,7 +542,7 @@ namespace SanguoshaServer.Package
             else if (reason == CardUseReason.CARD_USE_REASON_RESPONSE)
                 method = HandlingMethod.MethodResponse;
 
-            return Engine.GetPattern(room.GetRoomState().GetCurrentCardUsePattern()).GetPatternString() == Jink.ClassName && RoomLogic.IsProhibited(room, player, null, card) == null
+            return Engine.GetPattern(room.GetRoomState().GetCurrentCardUsePattern()).GetPatternString().StartsWith(ClassName) && RoomLogic.IsProhibited(room, player, null, card) == null
                 && !RoomLogic.IsCardLimited(room, player, card, method);
         }
     }
@@ -813,9 +814,13 @@ namespace SanguoshaServer.Package
         {
             return new CardBasicEffect(to, 0, 1, 0);
         }
+        public override void Use(Room room, CardUseStruct card_use)
+        {
+            room.SetEmotion(card_use.From, "savage_assault");
+            base.Use(room, card_use);
+        }
         public override void OnEffect(Room room, CardEffectStruct effect)
         {
-            room.SetEmotion(effect.From, "savage_assault");
             bool respond = false;
             for (int i = 0; i < effect.BasicEffect.Effect2; i++)
             {
@@ -1135,6 +1140,7 @@ namespace SanguoshaServer.Package
             room.SetEmotion(second, "duel");
             Thread.Sleep(400);
 
+            string pattern = string.IsNullOrEmpty(effect.BasicEffect.RespondPattern) ? Slash.ClassName : effect.BasicEffect.RespondPattern;
             Dictionary<string, int> counts = new Dictionary<string, int>
             {
                 { first.Name, effect.BasicEffect.Effect2 },
@@ -1150,7 +1156,8 @@ namespace SanguoshaServer.Package
                 int count = counts[first.Name];
                 while (count > 0)
                 {
-                    WrappedCard slash = room.AskForCard(first, Name, Slash.ClassName, string.Format("duel-slash:{0}::{1}", second.Name, count), effect, HandlingMethod.MethodResponse, second);
+                    WrappedCard slash = room.AskForCard(first, Name, first == effect.To ? pattern : Slash.ClassName,
+                        string.Format("duel-slash:{0}::{1}", second.Name, count), effect, HandlingMethod.MethodResponse, second);
                     count--;
                     if (slash == null)
                     {
@@ -2096,7 +2103,8 @@ namespace SanguoshaServer.Package
         }
         public override bool IsEnabledAtResponse(Room room, Player player, string pattern)
         {
-            return pattern == Slash.ClassName && player.GetMark("Equips_nullified_to_Yourself") == 0;
+            pattern = Engine.GetPattern(pattern).GetPatternString();
+            return pattern.StartsWith(Slash.ClassName) && player.GetMark("Equips_nullified_to_Yourself") == 0;
         }
         public override bool ViewFilter(Room room, List<WrappedCard> selected, WrappedCard to_select, Player player)
         {

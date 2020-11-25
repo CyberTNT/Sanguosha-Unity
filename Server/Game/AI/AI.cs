@@ -1607,6 +1607,7 @@ namespace SanguoshaServer.AI
 
             foreach (SkillEvent e in skill_events.Values)
                 e.DamageEffect(this, ref damage, step);
+            if (damage.Damage < 0) return 0;
 
             if (damage.Card != null)
             {
@@ -1703,6 +1704,8 @@ namespace SanguoshaServer.AI
                         if (lord != null && RoomLogic.PlayerHasShownSkill(room, lord, "shouyue") && RoomLogic.WillBeFriendWith(room, from, lord))
                             armor_ignore = true;
                     }
+                    else if (HasSkill("anjian", from) && !RoomLogic.InMyAttackRange(room, to, from))
+                        armor_ignore = true;
                 }
 
                 if (!armor_ignore)
@@ -3037,6 +3040,7 @@ namespace SanguoshaServer.AI
             if (HasSkill("fuqi", from) && RoomLogic.DistanceTo(room, from, to) == 1)
                 force_hit = 1;
             if (HasSkill("wanglie", from) && from.Phase == PlayerPhase.Play && !IsFriend(from, to)) force_hit = 1;
+            if (HasSkill("wushen", from) && RoomLogic.GetCardSuit(room, card) == WrappedCard.CardSuit.Heart) force_hit = 1;
 
             bool no_red = to.GetMark("@qianxi_red") > 0;
             bool no_black = to.GetMark("@qianxi_black") > 0;
@@ -3558,6 +3562,8 @@ namespace SanguoshaServer.AI
                     if (lord != null && RoomLogic.PlayerHasShownSkill(room, lord, "shouyue") && RoomLogic.WillBeFriendWith(room, from, lord))
                         armor_ignore = true;
                 }
+                else if (HasSkill("anjian", from) && !RoomLogic.InMyAttackRange(room, to, from))
+                    armor_ignore = true;
             }
 
             if (!armor_ignore && from != null && HasSkill("benxi", from))
